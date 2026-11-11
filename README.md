@@ -47,19 +47,38 @@
 
 ## 安装
 
-目前尚未上架 Chrome Web Store 或 Microsoft Edge Add-ons，请通过浏览器的开发者模式安装。[下载 v1.0.0 源码 ZIP](../../archive/refs/tags/v1.0.0.zip)
+目前尚未上架 Chrome Web Store 或 Microsoft Edge Add-ons。桌面版 Chrome 和 Edge 都可以通过开发者模式加载同一份扩展。
 
-1. 解压 GitHub 提供的源码 ZIP，保留解压后的目录。
-2. 打开对应浏览器的扩展管理页：
+### 1. 下载并解压
 
-| Chrome | Microsoft Edge |
-| --- | --- |
-| `chrome://extensions/` | `edge://extensions/` |
+点击 [下载 v1.0.0 源码 ZIP](../../archive/refs/tags/v1.0.0.zip)，或在 [发布页](../../releases/tag/v1.0.0) 的 **Assets** 下选择 **Source code (zip)**。下载后，在 Windows 文件管理器里右键 ZIP，选择「全部解压缩」。将解压后的目录放到方便长期保留的位置。
 
-3. 开启「开发者模式」，选择「加载已解压的扩展程序」。
-4. 选择包含 `manifest.json` 的 `x-follow-manager` 文件夹，然后刷新 X 页面。
+### 2. 打开开发者模式并添加插件
 
-Chrome 与 Edge 使用同一份扩展文件。[详细安装、更新与故障排查](INSTALL.md)
+**Chrome**
+
+1. 新开一个标签页，在顶部地址栏输入 `chrome://extensions/`，按 Enter。
+2. 在扩展管理页的**右上角**找到「开发者模式」（Developer mode），点一下开关，使其处于开启状态。
+3. 开关打开后，页面顶部会出现「加载已解压的扩展程序」（Load unpacked）。点击它，打开文件夹选择窗口。
+
+**Microsoft Edge**
+
+1. 新开一个标签页，在顶部地址栏输入 `edge://extensions/`，按 Enter。
+2. 在扩展管理页的**左侧栏**找到「开发人员模式」（Developer mode），点击开关开启。侧栏折叠时，先点左上角的菜单按钮。
+3. 点击页面上方出现的「加载解压缩的扩展」（Load unpacked），打开文件夹选择窗口。
+
+### 3. 选中正确的文件夹
+
+在选择窗口进入刚解压的目录，再进入里面的 **`x-follow-manager`** 子文件夹，点击「选择文件夹」。该文件夹打开后应直接看到 `manifest.json`。如果眼前只看到 `README.md` 和一个 `x-follow-manager` 文件夹，还需要进去一层。
+
+扩展管理页出现「X 关注管理台」卡片且开关已开启，即已添加成功。回到 X，刷新页面，进入自己账号的「正在关注」或「关注者」列表，即可看到管理面板。
+
+### 更新与排查
+
+- **找不到加载按钮**。检查是否已打开扩展管理页并开启开发者模式。单位管理的浏览器若禁用了该功能，请联系管理员。
+- **提示找不到清单文件**。重新选择直接包含 `manifest.json` 的 `x-follow-manager` 子文件夹。
+- **已添加却看不到面板**。确认扩展在当前使用的浏览器配置中已开启，刷新 X，再进入自己的关注或粉丝列表。
+- **更新扩展**。将新版扩展文件放到原来加载的目录，在扩展卡片上点「重新加载」，然后刷新 X。浏览器依赖这个目录运行扩展，请保留它。
 
 ## 设置与使用
 
