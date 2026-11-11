@@ -1,10 +1,6 @@
-<p align="center">
-  <img src="x-follow-manager/icons/icon-128.png" width="80" alt="X 关注管理台图标">
-</p>
-
-<h1 align="center">X 关注管理台</h1>
-
-<p align="center">在 X 上扫描关注关系、管理排除名单，确认后分批取关或回关。</p>
+<h1 align="center">
+  <img src="docs/screenshots/cover.png" width="1200" alt="X 关注管理台 · 看清关注关系，核对名单后分批取关或回关">
+</h1>
 
 <p align="center"><strong>v1.0.0</strong> · 桌面 Chrome / Microsoft Edge · Manifest V3 · 本地运行</p>
 
@@ -51,7 +47,7 @@
 
 ## 安装
 
-**[下载 v1.0.0 源码 ZIP](../../archive/refs/tags/v1.0.0.zip)**
+目前尚未上架 Chrome Web Store 或 Microsoft Edge Add-ons，请通过浏览器的开发者模式安装。[下载 v1.0.0 源码 ZIP](../../archive/refs/tags/v1.0.0.zip)
 
 1. 解压 GitHub 提供的源码 ZIP，保留解压后的目录。
 2. 打开对应浏览器的扩展管理页：
