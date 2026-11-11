@@ -1,0 +1,18 @@
+name: 问题反馈
+description: 报告可复现的 Bug
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: 扩展版本、浏览器及系统版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤、预期结果和实际结果
+      description: 请对账号、截图和日志脱敏，不要提交密码或 Cookie。
+    validations:
+      required: true

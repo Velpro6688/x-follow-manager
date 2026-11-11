@@ -1,0 +1,17 @@
+{
+  "name": "x-follow-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome MV3 extension: find and batch-unfollow non-followers on X",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/unit.test.mjs tests/coordinator.test.mjs tests/ui.test.mjs tests/scheduler.test.mjs tests/server.test.mjs",
+    "serve": "node tests/server.mjs 38080",
+    "e2e": "node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  },
+  "license": "MIT",
+  "author": "Velpro"
+}

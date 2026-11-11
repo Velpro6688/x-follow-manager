@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模拟 X 关注列表 · 测试台</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #fff; color: #0f1419;
+    font: 14px/1.4 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  /* 测试控制条：模拟 X 之外的东西，不影响内容区结构 */
+  #harness {
+    position: fixed; left: 12px; bottom: 12px; z-index: 99999;
+    background: rgba(15,20,25,.92); color: #fff; border-radius: 10px;
+    padding: 10px 12px; font-size: 12px; max-width: 300px; line-height: 1.5;
+  }
+  #harness b { color: #1d9bf0; }
+  #harness button {
+    margin: 4px 4px 0 0; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.25); background: transparent; color: #fff; font: inherit;
+  }
+  #harness button:hover { background: rgba(255,255,255,.12); }
+
+  #app { max-width: 600px; margin: 0 auto; border-left: 1px solid #eff3f4; border-right: 1px solid #eff3f4; }
+  .topbar { padding: 12px 16px; font-weight: 700; border-bottom: 1px solid #eff3f4; }
+  .tabs {
+    position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,.96);
+    backdrop-filter: blur(8px); display: flex; border-bottom: 1px solid #eff3f4;
+  }
+  .tabs a {
+    flex: 1; text-align: center; padding: 14px 0; color: #536471; text-decoration: none;
+    font-weight: 500;
+  }
+  .tabs a[aria-selected="true"] { color: #0f1419; font-weight: 700; position: relative; }
+  .tabs a[aria-selected="true"]::after {
+    content: ""; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 56px; height: 4px; border-radius: 2px; background: #1d9bf0;
+  }
+  .cellWrap { border-bottom: 1px solid #eff3f4; }
+  .userCell { display: flex; gap: 12px; padding: 12px 16px; align-items: flex-start; }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ubody { flex: 1; min-width: 0; }
+  .uname { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .uname a { color: #0f1419; text-decoration: none; }
+  .uname .name { font-weight: 700; }
+  .uname .handle, .uname .sep { color: #536471; font-weight: 400; }
+  .indicator {
+    background: #eff3f4; color: #536471; border-radius: 4px; padding: 0 4px;
+    font-size: 12px; line-height: 18px;
+  }
+  .bio { color: #0f1419; margin-top: 2px; }
+  .followBtn {
+    flex: none; align-self: flex-start; margin-top: 2px;
+    border: 1px solid #cfd9de; background: #fff; color: #0f1419;
+    border-radius: 999px; padding: 5px 15px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+  .followBtn:hover { border-color: #f4212e; color: #f4212e; }
+  .end { padding: 22px; text-align: center; color: #536471; }
+  .sheet {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex;
+    align-items: center; justify-content: center; z-index: 9000;
+  }
+  .sheetBox { background: #fff; border-radius: 16px; width: 300px; overflow: hidden; }
+  .sheetBox p { padding: 18px 16px 12px; margin: 0; font-size: 15px; }
+  .sheetBox .act { display: block; width: 100%; border: none; background: #fff; padding: 13px;
+    font: inherit; cursor: pointer; border-top: 1px solid #eff3f4; }
+  .sheetBox .danger { color: #f4212e; font-weight: 700; }
+  .alertBox {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: #f4212e; color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 9500;
+    font-size: 13px;
+  }
+
+  /* 深色模式（模拟 X 的 Dim / Lights out） */
+  html[data-dark="1"] body { background: #15202b; color: #e7e9ea; }
+  html[data-dark="1"] .topbar,
+  html[data-dark="1"] .tabs,
+  html[data-dark="1"] .cellWrap { border-color: #38444d; }
+  html[data-dark="1"] .tabs { background: rgba(21, 32, 43, .96); }
+  html[data-dark="1"] .tabs a { color: #8b98a5; }
+  html[data-dark="1"] .tabs a[aria-selected="true"] { color: #e7e9ea; }
+  html[data-dark="1"] .uname a,
+  html[data-dark="1"] .bio { color: #e7e9ea; }
+  html[data-dark="1"] .uname .handle { color: #8b98a5; }
+  html[data-dark="1"] .indicator { background: #38444d; color: #8b98a5; }
+  html[data-dark="1"] .followBtn { background: transparent; color: #e7e9ea; border-color: #536471; }
+  html[data-dark="1"] .followBtn:hover { background: rgba(244, 33, 46, .1); border-color: #f4212e; color: #f4212e; }
+  html[data-dark="1"] .sheetBox { background: #15202b; color: #e7e9ea; }
+  html[data-dark="1"] .sheetBox .act { background: #15202b; border-color: #38444d; color: #e7e9ea; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="topbar">模拟 X · 正在关注</div>
+  <main data-testid="primaryColumn" id="primary">
+    <div class="tabs" role="tablist">
+      <a role="tab" href="/alice/following" aria-selected="true">正在关注</a>
+      <a role="tab" href="/alice/followers" aria-selected="false">关注者</a>
+    </div>
+    <section role="region" id="list"></section>
+    <div class="end" id="end" hidden>已经到底了</div>
+  </main>
+</div>
+
+<!-- 模拟 X 左侧导航的身份来源：扩展用它核实「列表主人 = 登录账号」 -->
+<div id="sidenav" style="position:fixed;left:-9999px;top:0" aria-hidden="true">
+  <a data-testid="AppTabBar_Profile_Link" href="/alice"><span>个人资料</span></a>
+</div>
+
+<div id="harness">
+  <b>测试控制台</b><br>
+  初始 8 行，滚到底自动追加 6 行；部分用户模拟失败/限制。
+  <div>
+    <button id="btnLang">切换界面语言</button>
+    <button id="btnReset">重置列表</button>
+  </div>
+  <div id="langLabel" style="margin-top:4px;opacity:.7">当前：中文</div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/* chrome API stub（让 content.js 在普通网页中可运行）                   */
+/* ------------------------------------------------------------------ */
+var PARAMS = new URLSearchParams(location.search);
+var STUB_LIMIT = Math.min(200, Math.max(1, parseInt(PARAMS.get("limit") || "50", 10) || 50));
+var NO_MUTUAL = PARAMS.get("nomutual") === "1";
+var DARK = PARAMS.get("dark") === "1";
+var IS_FOLLOWERS = /\/followers\/?$/.test(location.pathname);
+if (DARK) document.documentElement.setAttribute("data-dark", "1");
+
+var STORAGE_CHANGE_LISTENERS = [];
+
+window.chrome = {
+  storage: {
+    local: {
+      // 进度键读取保持门控：e2e 用它控制「两个标签页都读完才写」的时序
+      __xfmHoldProgressGets: false,
+      __xfmHeldGetCount: 0,
+      get: function (key, cb) {
+        var data = {};
+        data["xfm.settings.v1"] = {
+          batchLimit: STUB_LIMIT,
+          quantity: 50,
+          strictMode: true,
+          filter: PARAMS.get("filter") === "all" ? "all" : "one-way"
+        };
+        // 读取上一次写入的所有键（模拟 chrome.storage 的持久化；锁等非设置键也要能读到）
+        try {
+          var saved = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+          if (saved) Object.keys(saved).forEach(function (k) { data[k] = saved[k]; });
+        } catch (e) { /* 忽略 */ }
+        var out = {};
+        if (typeof key === "string") out[key] = data[key];
+        else if (Array.isArray(key)) key.forEach(function (k) { out[k] = data[k]; });
+        else out = data;
+        var progressHold = window.__xfmHoldProgressGets === true && (function () {
+          var keys = typeof key === "string" ? [key] : (Array.isArray(key) ? key : Object.keys(out));
+          return keys.some(function (k) { return typeof k === "string" && k.indexOf("xfm.scan.progress.v1") === 0; });
+        })();
+        if (progressHold) {
+          window.__xfmHeldGetCount = (window.__xfmHeldGetCount || 0) + 1;
+          return new Promise(function (res) {
+            var poll = setInterval(function () {
+              if (window.__xfmHoldProgressGets !== true) {
+                clearInterval(poll);
+                // 放行时重读：协调器的合并必须基于最新已提交状态
+                try {
+                  var fresh = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+                  var freshOut = {};
+                  if (typeof key === "string") freshOut[key] = fresh[key];
+                  else if (Array.isArray(key)) key.forEach(function (k) { freshOut[k] = fresh[k]; });
+                  else freshOut = fresh;
+                  res(freshOut);
+                } catch (e) { res(out); }
+              }
+            }, 60);
+          });
+        }
+        if (typeof cb === "function") { cb(out); return; }
+        return Promise.resolve(out);
+      },
+      set: function (obj, cb) {
+        // ?storagefail=1 模拟写入失败（配额满等），验证扩展的失败反馈
+        if (PARAMS.get("storagefail") === "1") {
+          var err = new Error("QuotaExceededError");
+          if (typeof cb === "function") { cb(err); return; }
+          return Promise.reject(err);
+        }
+        var write = function () {
+          try {
+            var all = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+            Object.keys(obj || {}).forEach(function (k) { all[k] = obj[k]; });
+            localStorage.setItem("xfm-store", JSON.stringify(all));
+          } catch (e) { /* 忽略 */ }
+          if (typeof cb === "function") { cb(); }
+        };
+        var lag = (typeof window.__xfmSetLag === "number") ? window.__xfmSetLag : STORAGE_LAG;
+        if (lag > 0) {
+          // 延迟 set 的完成（模拟慢存储后端）：清除请求排队在后，
+          // 扩展的 epoch 复核必须能把已经落盘的写回再清掉
+          return new Promise(function (res) {
+            setTimeout(function () { write(); res(); }, lag);
+          });
+        }
+        write();
+        return Promise.resolve();
+      },
+      remove: function (keys, cb) {
+        try {
+          var all = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+          (Array.isArray(keys) ? keys : [keys]).forEach(function (k) { delete all[k]; });
+          localStorage.setItem("xfm-store", JSON.stringify(all));
+        } catch (e) { /* 忽略 */ }
+        if (typeof cb === "function") { cb(); return; }
+        return Promise.resolve();
+      }
+    },
+    // 模拟 chrome.storage.onChanged：供 e2e 模拟「另一个标签页写入了设置」
+    onChanged: {
+      addListener: function (fn) { STORAGE_CHANGE_LISTENERS.push(fn); }
+    }
+  },
+  runtime: (function () {
+    /*
+     * 与 background.js 同规则的页面级协调器（e2e 无真实扩展）：
+     * 串行队列 + 读-合并-写 + 清除墓碑。共享存储 = 本页 localStorage stub。
+     */
+    var coordQueue = Promise.resolve();
+    var messageListeners = [];
+    window.__xfmScheduled = { events: [], records: [], notifications: [] };
+    window.__xfmDeliverScheduled = function (msg) {
+      messageListeners.forEach(function (fn) { fn(msg, {}, function () {}); });
+    };
+    var settingsKey = "xfm.settings.v1";
+    var lockKey = "xfm.run.lock.v1";
+    window.__xfmCoordLog = window.__xfmCoordLog || [];
+    function coordHandle(msg) {
+      window.__xfmCoordLog.push({ at: Date.now(), type: msg.type, key: (msg.key || "").slice(-16), rows: msg.rows ? msg.rows.length : undefined });
+      if (msg.type === "XFM_SCHED_GET_TASKS") {
+        return chrome.storage.local.get("xfm.scheduled.v1").then(function (data) {
+          return data["xfm.scheduled.v1"] || { cleanup: null, followback: null };
+        });
+      }
+      if (msg.type === "XFM_SCHED_SAVE_TASK") {
+        return chrome.storage.local.get("xfm.scheduled.v1").then(function (data) {
+          var tasks = data["xfm.scheduled.v1"] || { cleanup: null, followback: null };
+          tasks[msg.taskKey] = Object.assign({}, msg.task);
+          var saved = tasks[msg.taskKey];
+          // 与后台一致：启用时回写 nextRun，供界面显示下次执行时间
+          if (saved.enabled && window.XFMCore) saved.nextRun = window.XFMCore.computeNextRun(saved, Date.now());
+          var upd = {}; upd["xfm.scheduled.v1"] = tasks;
+          return chrome.storage.local.set(upd).then(function () { return { ok: true, task: saved }; });
+        });
+      }
+      if (msg.type === "XFM_SCHED_MARK_SCANNING" || msg.type === "XFM_SCHED_SCAN_DONE" || msg.type === "XFM_SCHED_ACTION_BEGIN" || msg.type === "XFM_SCHED_ACTION_END") {
+        window.__xfmScheduled.events.push(msg);
+        return Promise.resolve({ ok: true });
+      }
+      if (msg.type === "XFM_SCHED_RECORD_RUN" || msg.type === "XFM_SCHED_RECORD_SKIP") {
+        window.__xfmScheduled.records.push(msg);
+        return Promise.resolve({ ok: true });
+      }
+      if (msg.type === "XFM_COORD_NOTIFY") {
+        if (window.__xfmNotifyFail) return Promise.reject(new Error("notify disabled"));
+        window.__xfmScheduled.notifications.push(msg);
+        return Promise.resolve({ ok: true });
+      }
+      // 与 background.js 同规则：设置读-合并-写；执行锁检查/心跳/释放
+      if (msg.type === "XFM_COORD_SETTINGS") {
+        return chrome.storage.local.get(settingsKey).then(function (data) {
+          var saved = data[settingsKey] || {};
+          var next = Object.assign({}, saved, msg.patch || {});
+          if (msg.excluded) {
+            next.excluded = window.XFMCore.mergeExcluded(msg.excluded.base, msg.excluded.ours, saved.excluded || []).slice(0, 5000);
+          }
+          var upd = {};
+          upd[settingsKey] = next;
+          return chrome.storage.local.set(upd).then(function () { return { ok: true, settings: next }; });
+        });
+      }
+      if (msg.type === "XFM_COORD_ACQUIRE") {
+        return chrome.storage.local.get(lockKey).then(function (data) {
+          var current = data[lockKey];
+          if (current && current.runId && Date.now() - (current.heartbeat || 0) < 6000) {
+            return { ok: false, reason: "另一个标签页正在执行，请先等它结束" };
+          }
+          var entry = {};
+          entry[lockKey] = { runId: msg.runId, path: msg.path, heartbeat: Date.now() };
+          return chrome.storage.local.set(entry).then(function () { return { ok: true }; });
+        });
+      }
+      if (msg.type === "XFM_COORD_BEAT" || msg.type === "XFM_COORD_RELEASE") {
+        return chrome.storage.local.get(lockKey).then(function (data) {
+          var current = data[lockKey];
+          if (!current || current.runId !== msg.runId) return { ok: true };
+          if (msg.type === "XFM_COORD_BEAT") {
+            current.heartbeat = Date.now();
+            var beat = {}; beat[lockKey] = current;
+            return chrome.storage.local.set(beat).then(function () { return { ok: true }; });
+          }
+          return chrome.storage.local.remove(lockKey).then(function () { return { ok: true }; });
+        });
+      }
+      if (msg.type === "XFM_COORD_PROGRESS_BEGIN") {
+        // 与 background.js 同规则：顺带清理超过一周的进度条目（写回升代墓碑，不删除）
+        return chrome.storage.local.get(null).then(function (all) {
+          var staleUpdate = {};
+          Object.keys(all).forEach(function (k) {
+            if (k.indexOf("xfm.scan.progress.v1") !== 0) return;
+            var e = all[k];
+            var at = (e && (e.updatedAt || e.clearedAt)) || 0;
+            if (Date.now() - at > 7 * 24 * 60 * 60 * 1000) {
+              staleUpdate[k] = {
+                id: k.slice("xfm.scan.progress.v1:".length),
+                clearedAt: Date.now(),
+                generation: ((e && e.generation) || 0) + 1
+              };
+            }
+          });
+          var prune = Object.keys(staleUpdate).length > 0 ? chrome.storage.local.set(staleUpdate) : Promise.resolve();
+          return prune.then(function () {
+            return chrome.storage.local.get(msg.key).then(function (data) {
+              return { ok: true, generation: (data[msg.key] && data[msg.key].generation) || 0 };
+            });
+          });
+        });
+      }
+      if (msg.type === "XFM_COORD_PROGRESS_SAVE") {
+        return chrome.storage.local.get(msg.key).then(function (data) {
+          var existing = data[msg.key] || null;
+          var generation = (existing && existing.generation) || 0;
+          if (msg.generation !== generation) return { ok: true, skipped: true, reason: "generation" };
+          var resolved = { rows: window.XFMCore.mergeProgressRows(existing && existing.rows, msg.rows || []), updatedAt: Date.now() };
+          var upd = {};
+          upd[msg.key] = Object.assign({
+            id: msg.id || "", path: msg.path || "", mode: msg.mode || "",
+            scrollTop: msg.scrollTop || 0, rounds: msg.rounds || 0, partial: !!msg.partial, generation: generation
+          }, resolved);
+          return chrome.storage.local.set(upd).then(function () { return { ok: true }; });
+        });
+      }
+      if (msg.type === "XFM_COORD_PROGRESS_CLEAR") {
+        return chrome.storage.local.get(msg.key).then(function (data) {
+          var generation = (data[msg.key] && data[msg.key].generation) || 0;
+          if (msg.generation != null && msg.generation !== generation) return { ok: true, skipped: true };
+          var tomb = {};
+          tomb[msg.key] = { id: msg.id || "", clearedAt: Date.now(), generation: generation + 1 };
+          return chrome.storage.local.set(tomb).then(function () { return { ok: true }; });
+        });
+      }
+      return Promise.resolve({ ok: true });
+    }
+    return {
+      id: "xfm-e2e-harness",
+      onMessage: { addListener: function (fn) { messageListeners.push(fn); } },
+      sendMessage: function (msg, cb) {
+        if (msg && msg.type && (msg.type.indexOf("XFM_COORD_") === 0 || msg.type.indexOf("XFM_SCHED_") === 0)) {
+          var run = coordQueue.then(function () { return coordHandle(msg); });
+          coordQueue = run.catch(function () {});
+          var out = run.then(function (r) { return r || { ok: true }; });
+          if (typeof cb === "function") { out.then(function (r) { cb(r); }, function (e) { cb({ ok: false, reason: String(e) }); }); }
+          return out;
+        }
+        if (typeof cb === "function") { cb({ ok: false, reason: "未支持的消息" }); return; }
+        return Promise.resolve({ ok: false, reason: "未支持的消息" });
+      }
+    };
+  })()
+};
+
+/** 供端到端测试模拟另一个标签页 / 弹窗写入设置（绕过本页内存，直接落盘并广播） */
+window.__xfmExternalSettingsWrite = function (settings) {
+  window.__xfmExternalWrite("xfm.settings.v1", settings);
+};
+
+/** 通用外部写入：任意 chrome.storage.local 键（如执行互斥锁） */
+window.__xfmExternalWrite = function (key, value) {
+  try {
+    var all = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+    if (value === undefined) delete all[key];
+    else all[key] = value;
+    localStorage.setItem("xfm-store", JSON.stringify(all));
+  } catch (e) { /* 忽略 */ }
+  var changes = {};
+  changes[key] = { oldValue: undefined, newValue: value };
+  STORAGE_CHANGE_LISTENERS.forEach(function (fn) {
+    try { fn(changes, "local"); } catch (e) { /* 监听器异常不影响测试台 */ }
+  });
+};
+
+/** 读取当前落盘的设置（e2e 断言用） */
+window.__xfmStoredSettings = function () {
+  return window.__xfmStoredValue("xfm.settings.v1");
+};
+
+window.__xfmStoredValue = function (key) {
+  try {
+    var all = JSON.parse(localStorage.getItem("xfm-store") || "{}");
+    return all[key] !== undefined ? all[key] : null;
+  } catch (e) { return null; }
+};
+
+/* ------------------------------------------------------------------ */
+/* 模拟数据                                                            */
+/* ------------------------------------------------------------------ */
+var LANG = "zh";
+
+var USERS = [
+  { handle: "alpha_dev",  name: "Alpha 开发者",  mutual: false, hue: 210, avatar: true },
+  { handle: "bob_ui",     name: "Bob 设计",      mutual: true,  hue: 340 },
+  { handle: "carol_ml",   name: "Carol 算法",    mutual: false, hue: 160 },
+  { handle: "dave_ops",   name: "Dave 运维",     mutual: true,  hue: 30  },
+  { handle: "erin_data",  name: "Erin 数据分析", mutual: false, hue: 270 },
+  { handle: "frank_iot",  name: "Frank 嵌入式",  mutual: false, hue: 90  },
+  { handle: "grace_pm",   name: "Grace 产品",    mutual: true,  hue: 300 },
+  { handle: "broken_row", name: "结构异常行",    mutual: false, hue: 0, broken: true },
+  { handle: "heidi_sec",  name: "Heidi 安全",    mutual: false, hue: 190 },
+  { handle: "ivan_qa",    name: "Ivan 测试",     mutual: true,  hue: 120 },
+  { handle: "judy_mob",   name: "Judy 移动端",   mutual: false, hue: 250 },
+  { handle: "stuck_user", name: "Stuck 无响应",  mutual: false, hue: 45, mode: "stuck" },
+  { handle: "limit_user", name: "Limit 触发限制", mutual: false, hue: 15, mode: "limit" },
+  { handle: "ken_game",   name: "Ken 游戏",      mutual: false, hue: 200 },
+  { handle: "lily_ai",    name: "Lily AI",       mutual: true,  hue: 320 },
+  { handle: "mike_cloud", name: "Mike 云原生",   mutual: false, hue: 175 },
+  { handle: "nina_cv",    name: "Nina 视觉",     mutual: false, hue: 60, avatar: true },
+  { handle: "oscar_net",  name: "Oscar 网络",    mutual: true,  hue: 230 },
+  { handle: "paul_rust",  name: "Paul Rust",     mutual: false, hue: 5   },
+  { handle: "queen_go",   name: "Queen Go",      mutual: false, hue: 145, avatar: true }
+];
+
+// 按产品默认从列表末尾向前执行，先遇到无响应，再遇到限流。
+if (PARAMS.get("unknownfirst") === "1") {
+  var stuckIndex = USERS.findIndex(function (u) { return u.handle === "stuck_user"; });
+  var limitIndex = USERS.findIndex(function (u) { return u.handle === "limit_user"; });
+  if (stuckIndex >= 0 && limitIndex >= 0) {
+    var tempUser = USERS[stuckIndex]; USERS[stuckIndex] = USERS[limitIndex]; USERS[limitIndex] = tempUser;
+  }
+}
+
+// 合成模式：?synthetic=N 生成 N 个账号，模拟长列表
+var SYNTHETIC = Math.max(0, parseInt(PARAMS.get("synthetic") || "0", 10) || 0);
+if (SYNTHETIC > 0) {
+  USERS = [];
+  for (var si = 0; si < SYNTHETIC; si += 1) {
+    USERS.push({
+      handle: "user" + si,
+      name: "用户" + si,
+      mutual: si % 3 === 0,
+      hue: (si * 37) % 360
+    });
+  }
+}
+
+var TEXT = {
+  zh: { following: "正在关注", followsYou: "关注了你", follow: "关注", sheet: "取消关注 @{h}？", cancel: "取消", confirm: "取消关注" },
+  en: { following: "Following", followsYou: "Follows you", follow: "Follow", sheet: "Unfollow @{h}?", cancel: "Cancel", confirm: "Unfollow" }
+};
+
+var renderedCount = 0;
+var BATCH = Math.max(1, parseInt(PARAMS.get("batch") || (SYNTHETIC ? "60" : "6"), 10) || 6);
+var INITIAL = Math.max(1, parseInt(PARAMS.get("initial") || (SYNTHETIC ? "60" : "8"), 10) || 8);
+var listEl = document.getElementById("list");
+var endEl = document.getElementById("end");
+
+/* ------------------------------------------------------------------ */
+/* 列表形态开关（全部 opt-in，默认关闭，保证旧场景行为不变）              */
+/*   ?virtual=1    只渲染视口附近的行、复用行节点、用撑高容器模拟总高度   */
+/*   ?varheights=1 行高不等，用来验证「平均行高估算」会失准              */
+/*   ?compensate=1 删除行时同步调整 scrollY（模拟 X 的滚动补偿）         */
+/*   ?hydrate=秒   按钮延迟渲染，模拟 X 的异步 hydration                 */
+/*   ?removeonunfollow=1 取关确认后按钮翻转、随后行被移出列表（列表重渲染）*/
+/*   ?removeonly=1 取关确认后不翻按钮直接删行（旧版本 X）——必须判「结果未知」*/
+/*   ?foreign=1    侧边栏身份指向另一个账号（/bob），列表是 /alice       */
+/* ------------------------------------------------------------------ */
+var VIRTUAL = PARAMS.get("virtual") === "1";
+var VAR_HEIGHTS = PARAMS.get("varheights") === "1";
+var COMPENSATE = PARAMS.get("compensate") === "1";
+var HYDRATE_MS = Math.max(0, Math.round((parseFloat(PARAMS.get("hydrate") || "0") || 0) * 1000));
+var REMOVE_ON_UNFOLLOW = PARAMS.get("removeonunfollow") === "1";
+var REPLACE_ON_UNFOLLOW = PARAMS.get("replaceonunfollow") === "1";
+/* ?bgstall=1 页面隐藏（document.hidden）时暂停懒加载，模拟 X 后台不加载新行 */
+var BG_STALL = PARAMS.get("bgstall") === "1";
+/* ?storagelag=毫秒 写入延迟落盘，模拟在途写与清除的异步竞争 */
+var STORAGE_LAG = Math.max(0, parseInt(PARAMS.get("storagelag") || "0", 10) || 0);
+/* ?recyclemid=1 虚拟模式下，视口中段行在首行/行数/页高不变时被复用为新账号（探针盲区构造） */
+var RECYCLE_MID = PARAMS.get("recyclemid") === "1";
+var MID_POOL = [];
+var MID_USED = 0;
+(function initMidPool() {
+  if (!RECYCLE_MID) return;
+  for (var i = 0; i < 5; i++) {
+    MID_POOL.push({ handle: "ghost_" + i, name: "Ghost " + i, mutual: false, hue: 88 });
+  }
+})();
+function swapMidRow() {
+  // 构造探针盲区：首行、行数、页高全部不变，仅视口中段行被复用为新账号
+  if (!RECYCLE_MID || MID_USED >= MID_POOL.length) return;
+  var cells = listEl.querySelectorAll('[data-testid="UserCell"]');
+  if (cells.length < 3) return;
+  var wrap = cells[1].closest(".cellWrap") || cells[1].parentElement;
+  if (!wrap || !wrap.getAttribute) return;
+  var handle = wrap.getAttribute("data-handle");
+  var idx = -1;
+  for (var i = 0; i < USERS.length; i++) {
+    if (USERS[i].handle === handle) { idx = i; break; }
+  }
+  if (idx <= 0) return; // 绝不动首行，保证「首行不变」前提成立
+  var ghost = MID_POOL[MID_USED];
+  fillRow(wrap, ghost, idx);
+  USERS[idx] = ghost;
+  MID_USED += 1;
+}
+var REMOVE_ONLY = PARAMS.get("removeonly") === "1";
+var FOREIGN = PARAMS.get("foreign") === "1";
+var NOSELF = PARAMS.get("noself") === "1";
+
+/** 测试可在运行中改写按钮延迟（秒）：window.__xfmHydrate = 0.6 */
+function hydrateDelayMs() {
+  if (typeof window.__xfmHydrate === "number") return Math.max(0, Math.round(window.__xfmHydrate * 1000));
+  return HYDRATE_MS;
+}
+
+var OFFSETS = [];
+var TOTAL_HEIGHT = 0;
+
+function rowHeightOf(i) {
+  if (!VAR_HEIGHTS) return 84;
+  // 大多数行偏高、每 5 行一个矮行：可见样本的中位数明显大于真实均值，
+  // 「按中位数估算位置」会估过头，把目标留在视口上方 —— 正好验证向上搜索
+  return i % 5 === 0 ? 72 : 300;
+}
+
+function buildOffsets() {
+  OFFSETS = [];
+  var y = 0;
+  for (var i = 0; i < USERS.length; i += 1) {
+    OFFSETS.push(y);
+    y += rowHeightOf(i);
+  }
+  TOTAL_HEIGHT = y;
+}
+
+function offsetOf(i) {
+  return OFFSETS[i] === undefined ? 0 : OFFSETS[i];
+}
+
+/** 二分找到 y 位置对应的行索引 */
+function indexAt(y) {
+  if (!USERS.length) return 0;
+  var lo = 0;
+  var hi = USERS.length - 1;
+  while (lo < hi) {
+    var mid = Math.ceil((lo + hi) / 2);
+    if (offsetOf(mid) <= y) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+function t(key) { return TEXT[LANG][key]; }
+
+/* ------------------------------------------------------------------ */
+/* 行渲染（虚拟与非虚拟共用，通过 fillRow 复用外层节点）                 */
+/* ------------------------------------------------------------------ */
+
+function bindActionButton(btn, user, wrap) {
+  btn.addEventListener("click", function (event) {
+    event.stopPropagation();
+    if (IS_FOLLOWERS && btn.getAttribute("data-testid").indexOf("-follow") !== -1) {
+      var uid = btn.getAttribute("data-testid").replace("-follow", "");
+      btn.setAttribute("data-testid", uid + "-unfollow");
+      btn.textContent = t("following");
+      return;
+    }
+    if (user.mode === "limit") {
+      showAlert(LANG === "en" ? "You are temporarily limited. Please try again later." : "你暂时受到限制，请稍后再试。");
+      return;
+    }
+    if (user.mode === "stuck") return; // 故意无响应，用于测试「结果未知」
+    openSheet(user, wrap);
+  });
+}
+
+function fillRow(wrap, user, index) {
+  wrap.className = "cellWrap";
+  wrap.setAttribute("data-handle", user.handle);
+  wrap.setAttribute("data-index", String(index));
+  if (VAR_HEIGHTS || VIRTUAL) wrap.style.minHeight = rowHeightOf(index) + "px";
+  if (VIRTUAL) {
+    wrap.style.position = "absolute";
+    wrap.style.left = "0";
+    wrap.style.right = "0";
+    wrap.style.top = offsetOf(index) + "px";
+    wrap.style.height = rowHeightOf(index) + "px";
+    wrap.style.overflow = "hidden";
+  }
+
+  if (user.broken) {
+    wrap.innerHTML = '<div data-testid="UserCell" class="userCell">' +
+      '<div class="avatar" style="background:hsl(' + user.hue + ',55%,45%)">?</div>' +
+      '<div class="ubody"><div data-testid="User-Name" class="uname">' +
+        '<a href="/' + user.handle + '"><span class="name">' + user.name + "</span></a>" +
+        '<a href="/' + user.handle + '"><span class="handle">@' + user.handle + "</span></a>" +
+      "</div>" +
+      '<div class="bio">这一行故意缺少操作按钮，用于测试「未知」状态</div></div></div>';
+    return;
+  }
+
+  var initial = (user.name || user.handle).slice(0, 1).toUpperCase();
+  var AVATAR_PX = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  var avatarInner = user.avatar ? '<img alt="" src="' + AVATAR_PX + '">' : initial;
+  wrap.innerHTML =
+    '<div data-testid="UserCell" class="userCell">' +
+      '<div class="avatar" style="background:hsl(' + user.hue + ',58%,46%)">' + avatarInner + "</div>" +
+      '<div class="ubody">' +
+        '<div data-testid="User-Name" class="uname">' +
+          '<a href="/' + user.handle + '"><span class="name">' + user.name + "</span></a>" +
+          '<a href="/' + user.handle + '"><span class="handle">@' + user.handle + "</span></a>" +
+          (user.mutual && !NO_MUTUAL ? '<span class="indicator">' + t("followsYou") + "</span>" : "") +
+        "</div>" +
+        '<div class="bio">这里是 ' + user.name + " 的简介文本。</div>" +
+      "</div>" +
+      '<div role="button" class="followBtn" data-testid="' + (1000 + index) + (IS_FOLLOWERS && !user.mutual ? '-follow' : '-unfollow') + '">' +
+        "<span>" + (IS_FOLLOWERS && !user.mutual ? t("follow") : t("following")) + "</span></div>" +
+    "</div>";
+
+  var btn = wrap.querySelector(".followBtn");
+  if (!btn) return;
+  var delay = hydrateDelayMs();
+  if (delay > 0) {
+    // 模拟 X 的异步 hydration：先没有按钮，过一会儿才渲染出来
+    var holder = btn.parentNode;
+    var html = btn.outerHTML;
+    btn.remove();
+    setTimeout(function () {
+      if (!holder.isConnected) return;
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      var fresh = tmp.firstElementChild;
+      holder.appendChild(fresh);
+      bindActionButton(fresh, user, wrap);
+    }, delay);
+  } else {
+    bindActionButton(btn, user, wrap);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 非虚拟模式：逐批追加                                                */
+/* ------------------------------------------------------------------ */function maybeAutoLoad() {
+  if (VIRTUAL) return;
+  if (renderedCount >= USERS.length) return;
+  if (BG_STALL && document.hidden) return;
+  if (document.documentElement.scrollHeight <= window.innerHeight + 60) {
+    setTimeout(function () {
+      if (renderedCount < USERS.length) renderBatch(BATCH);
+    }, 240);
+  }
+}
+
+function renderBatch(count) {
+  var next = Math.min(USERS.length, renderedCount + count);
+  for (var i = renderedCount; i < next; i += 1) {
+    var wrap = document.createElement("div");
+    fillRow(wrap, USERS[i], i);
+    listEl.appendChild(wrap);
+  }
+  renderedCount = next;
+  endEl.hidden = renderedCount < USERS.length;
+  maybeAutoLoad();
+}
+
+/* ------------------------------------------------------------------ */
+/* 虚拟模式：只渲染视口附近，节点回收复用                              */
+/* ------------------------------------------------------------------ */
+
+var mountedRows = new Map();   // index -> wrap
+var rowPool = [];
+
+function syncVirtualHeight() {
+  if (!VIRTUAL) return;
+  listEl.style.position = "relative";
+  listEl.style.height = TOTAL_HEIGHT + "px";
+}
+
+function visibleRange() {
+  var vh = window.innerHeight || 520;
+  var y = window.scrollY || 0;
+  var first = indexAt(Math.max(0, y - vh));
+  var last = indexAt(y + vh * 2);
+  // 上下各多给 3 行，避免滚动边界出现空白
+  first = Math.max(0, first - 3);
+  last = Math.min(USERS.length - 1, last + 3);
+  return [first, last];
+}
+
+function renderVirtual() {
+  if (!USERS.length) { listEl.innerHTML = ""; mountedRows.clear(); return; }
+  var range = visibleRange();
+  var keep = {};
+
+  for (var i = range[0]; i <= range[1]; i += 1) {
+    keep[i] = true;
+    var wrap = mountedRows.get(i);
+    if (!wrap) {
+      // 优先复用池里的旧节点：外层节点身份不变，内部换成另一个账号
+      wrap = rowPool.pop() || document.createElement("div");
+      wrap.style.display = "";
+      listEl.appendChild(wrap);
+      mountedRows.set(i, wrap);
+      fillRow(wrap, USERS[i], i);
+    }
+    wrap.style.top = offsetOf(i) + "px";
+    wrap.style.height = rowHeightOf(i) + "px";
+  }
+
+  mountedRows.forEach(function (wrap, idx) {
+    if (keep[idx]) return;
+    mountedRows.delete(idx);
+    // 真正移出 DOM：display:none 的节点仍会被 querySelectorAll 命中，
+    // 那会制造插件能「看见」却不在视口里的幽灵行，测不出定位逻辑
+    wrap.remove();
+    if (rowPool.length < 40) rowPool.push(wrap);
+  });
+
+  // 兜底清理：任何不在 mountedRows 里的行节点都必须从 DOM 消失
+  var alive = new Set(mountedRows.values());
+  Array.prototype.slice.call(listEl.children).forEach(function (el) {
+    if (el.classList && el.classList.contains("cellWrap") && !alive.has(el)) el.remove();
+  });
+
+  swapMidRow();
+}
+
+/* ------------------------------------------------------------------ */
+/* 删除与重置                                                          */
+/* ------------------------------------------------------------------ */
+
+/** 测试辅助：移除列表前 n 个账号（制造两个标签页不相交的扫描子集） */
+window.__xfmDropFirst = function (n) {
+  n = Math.min(n, USERS.length);
+  var removed = [];
+  for (var i = 0; i < n; i++) removed.push(USERS[i].handle);
+  USERS.splice(0, n);
+  // 重建非虚拟列表的 DOM
+  if (!VIRTUAL) {
+    listEl.innerHTML = "";
+    renderedCount = 0;
+    renderBatch(Math.min(USERS.length, Math.max(INITIAL, BATCH)));
+  } else {
+    buildOffsets();
+    mountedRows.forEach(function (w) { w.remove(); });
+    mountedRows.clear();
+    rowPool = [];
+    syncVirtualHeight();
+    renderVirtual();
+  }
+  return removed;
+};
+
+function removeUserRow(user, wrap) {
+  var height = (wrap && wrap.getBoundingClientRect().height) || 84;
+  if (COMPENSATE) {
+    // X 删除行后会把 scrollTop 往下补，保持视觉位置不变
+    window.scrollBy(0, -height);
+  }
+  if (wrap) wrap.remove();
+  var at = -1;
+  for (var i = 0; i < USERS.length; i += 1) {
+    if (USERS[i].handle === user.handle) { at = i; break; }
+  }
+  if (at >= 0) USERS.splice(at, 1);
+  buildOffsets();
+  if (VIRTUAL) {
+    mountedRows.forEach(function (w) { w.remove(); });
+    mountedRows.clear();
+    rowPool = [];
+    syncVirtualHeight();
+    renderVirtual();
+  }
+}
+
+function markUnfollowed(wrap) {
+  // 真实 X 的主路径：确认后按钮原地翻转为「关注」，行通常保留在列表里
+  var btn = wrap.querySelector(".followBtn");
+  if (!btn) return false;
+  var uid = (btn.getAttribute("data-testid") || "").replace(/-(unfollow|follow)$/, "");
+  if (!uid) return false;
+  btn.setAttribute("data-testid", uid + "-follow");
+  btn.innerHTML = "<span>" + t("follow") + "</span>";
+  return true;
+}
+
+function openSheet(user, wrap) {
+  var sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML =
+    '<div class="sheetBox">' +
+      "<p>" + t("sheet").replace("{h}", user.handle) + "</p>" +
+      '<button class="act" data-role="cancel">' + t("cancel") + "</button>" +
+      '<button class="act danger" data-testid="confirmationSheetConfirm" data-role="ok">' + t("confirm") + "</button>" +
+    "</div>";
+  document.body.appendChild(sheet);
+
+  sheet.querySelector('[data-role="cancel"]').addEventListener("click", function () { sheet.remove(); });
+  sheet.querySelector('[data-role="ok"]').addEventListener("click", function () {
+    sheet.remove();
+    // removeonly=1：模拟「不翻按钮直接删行」的旧版本 X —— 扩展必须把它判成结果未知
+    if (REMOVE_ONLY) { removeUserRow(user, wrap); return; }
+    markUnfollowed(wrap);
+    if (REPLACE_ON_UNFOLLOW) { wrap.replaceWith(wrap.cloneNode(true)); return; }
+    // removeonunfollow=1：部分版本在按钮翻转后还会把行移出列表（列表重渲染），
+    // 延迟一点移除，让扩展先观察到按钮证据再遇到行消失
+    if (REMOVE_ON_UNFOLLOW) {
+      wrap.style.transition = "opacity .18s";
+      wrap.style.opacity = "0";
+      setTimeout(function () { removeUserRow(user, wrap); }, 350);
+    }
+  });
+}
+
+function showAlert(text) {
+  var box = document.createElement("div");
+  box.className = "alertBox";
+  box.setAttribute("role", "alert");
+  box.textContent = text;
+  document.body.appendChild(box);
+  setTimeout(function () { box.remove(); }, 6000);
+}
+
+/** 供端到端测试触发页面级错误 */
+window.__mockFail = function (text) {
+  showAlert(text || "Something went wrong. Try reloading.");
+};
+
+/** 供端到端测试把指定账号滚进视口（虚拟模式下按偏移量直接跳） */
+window.__xfmScrollToHandle = function (handle) {
+  var idx = -1;
+  for (var i = 0; i < USERS.length; i += 1) {
+    if (USERS[i].handle === handle) { idx = i; break; }
+  }
+  if (idx < 0) return false;
+  if (VIRTUAL) {
+    window.scrollTo(0, offsetOf(idx));
+    renderVirtual();
+    return true;
+  }
+  while (renderedCount <= idx && renderedCount < USERS.length) renderBatch(BATCH);
+  var el = listEl.querySelector('[data-handle="' + handle + '"]');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" });
+  return !!el;
+};
+
+/** 供端到端测试滚到列表真正可见的底部（避开撑高容器的空白区） */
+window.__xfmScrollToBottom = function () {
+  var list = document.getElementById("list");
+  var bottom = list.offsetTop + list.offsetHeight;
+  window.scrollTo(0, Math.max(0, bottom - window.innerHeight + 120));
+  if (VIRTUAL) renderVirtual();
+  return Math.round(window.scrollY);
+};
+
+function reset() {
+  mountedRows.forEach(function (w) { w.remove(); });
+  mountedRows.clear();
+  rowPool = [];
+  listEl.innerHTML = "";
+  renderedCount = 0;
+  endEl.hidden = true;
+  window.scrollTo(0, 0);
+  buildOffsets();
+  if (VIRTUAL) {
+    syncVirtualHeight();
+    renderVirtual();
+  } else {
+    renderBatch(INITIAL);
+  }
+}
+
+var rafPending = false;
+window.addEventListener("scroll", function () {
+  if (VIRTUAL) {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(function () { rafPending = false; renderVirtual(); });
+    return;
+  }
+  if (renderedCount >= USERS.length) return;
+  var nearBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 200;
+  if (!nearBottom) return;
+  setTimeout(function () {
+    if (BG_STALL && document.hidden) return; // 后台不加载：模拟 X 的懒加载暂停
+    if (renderedCount < USERS.length) renderBatch(BATCH);
+  }, 260);
+});
+
+document.getElementById("btnLang").addEventListener("click", function () {
+  LANG = LANG === "zh" ? "en" : "zh";
+  document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
+  document.getElementById("langLabel").textContent = "当前：" + (LANG === "zh" ? "中文" : "English");
+  reset();
+});
+document.getElementById("btnReset").addEventListener("click", reset);
+
+// 身份来源的三种形态：
+//   默认      侧边栏指向 /alice，与列表主人一致 → 可核实
+//   foreign=1 侧边栏指向 /bob → 明确不一致，扫描应立即中止并说明原因
+//   noself=1  页面完全暴露不出登录身份 → 无法核实，扫描可跑但批量执行必须锁定
+(function setupIdentity() {
+  var profileLink = document.querySelector('[data-testid="AppTabBar_Profile_Link"]');
+  if (!profileLink) return;
+  if (NOSELF) { profileLink.remove(); return; }
+  if (FOREIGN) profileLink.setAttribute("href", "/bob");
+})();
+
+reset();
+</script>
+
+<script src="../x-follow-manager/shared/tokens.js"></script>
+<script src="../x-follow-manager/shared/debug.js"></script>
+<script src="../x-follow-manager/shared/i18n.js"></script>
+<script src="../x-follow-manager/content/core.js"></script>
+<script src="../x-follow-manager/content/ui.js"></script>
+<script src="../x-follow-manager/content/content.js"></script>
+</body>
+</html>
