@@ -1,10 +1,10 @@
-# X 关注管理台 v1.0.0
+# X 关注管理台 v1.0.1
 
 适用于桌面版 Chrome 和 Microsoft Edge。目前扩展从 GitHub 分发，需要通过浏览器的开发者模式加载。
 
 ## 首次安装
 
-1. 打开 [v1.0.0 发布页](https://github.com/Velpro6688/x-follow-manager/releases/tag/v1.0.0)，在 **Assets** 下下载 **Source code (zip)**。
+1. 打开 [v1.0.1 发布页](https://github.com/Velpro6688/x-follow-manager/releases/tag/v1.0.1)，在 **Assets** 下下载 **Source code (zip)**。
 2. 在文件管理器里解压 ZIP，把解压后的目录放在你准备长期保留的位置。
 3. 在目标浏览器的地址栏输入扩展管理地址。Chrome 使用 `chrome://extensions/`，Edge 使用 `edge://extensions/`。
 4. 开启「开发者模式」，点击「加载已解压的扩展程序」或「加载解压缩的扩展」。

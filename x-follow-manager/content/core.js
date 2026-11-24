@@ -831,6 +831,44 @@
     return snapshotStrict === true || liveStrict === true;
   }
 
+  function isExplicitPageErrorText(value) {
+    var text = String(value || "").replace(/\s+/g, " ").replace(/([，,])\s*/g, " ").trim();
+    if (!text || text.length > 180) return false;
+    return /^(?:出错了|出现错误|发生错误)[。.!！]?(?:\s*(?:请尝试重新加载|请刷新页面重试|请重试)[。.!！]?)?$/i.test(text) ||
+      /^(?:something went wrong|an error occurred)[.!]?(?:\s*(?:try reloading|try again)[.!]?)?$/i.test(text) ||
+      /^(?:發生了?錯誤|發生問題)[。.!！]?(?:\s*(?:請嘗試重新載入|請重試)[。.!！]?)?$/i.test(text) ||
+      /^(?:this page is temporarily unavailable|we(?:'|’)re having trouble loading this page)[.!]?$/i.test(text);
+  }
+
+  function statusIsVisible(el) {
+    if (el.closest('[hidden], [aria-hidden="true"]')) return false;
+    return !el.checkVisibility || el.checkVisibility({ checkVisibilityCSS: true });
+  }
+
+  /**
+   * 找到 X 主列里可见的原生“重试”控件。
+   * 自动恢复只能操作列表错误卡本身，不能误点账号行或侧栏按钮。
+   */
+  function findPageRetryControl(root) {
+    var doc = root || (typeof document !== "undefined" ? document : null);
+    if (!doc) return null;
+    var column = doc.querySelector(SEL.primaryColumn);
+    if (!column) return null;
+    var controls = column.querySelectorAll(':is([role="button"], button):not(' + SEL.userCell + ' *)');
+    for (var i = 0; i < controls.length; i += 1) {
+      var control = controls[i];
+      if (control.closest(SEL.userCell) || !statusIsVisible(control)) continue;
+      if (control.disabled || control.getAttribute("aria-disabled") === "true") continue;
+      var text = textOf(control) || control.getAttribute("aria-label") || "";
+      var testId = control.getAttribute("data-testid") || "";
+      if (/^(?:重试|重試|再试一次|再試一次|重新加载|重新載入|retry|try again)$/i.test(text) ||
+          /(?:^|[-_])retry(?:[-_]|$)/i.test(testId)) {
+        return control;
+      }
+    }
+    return null;
+  }
+
   /**
    * 检测页面级异常（限制、验证码、加载失败）。
    */
@@ -840,6 +878,7 @@
       loading: false,
       blocked: false,
       blockedReason: "",
+      pageError: false,
       empty: false
     };
     if (!doc) return issues;
@@ -847,7 +886,7 @@
     var column = doc.querySelector(SEL.primaryColumn) || doc;
 
     // 加载指示器只认主列内的，避免侧边栏或其它区域的进度条造成误判
-    if (column.querySelector(SEL.progressbar)) issues.loading = true;
+    issues.loading = Array.from(column.querySelectorAll(SEL.progressbar)).some(statusIsVisible);
 
     // 登录态失效：未登录时 X 会渲染登录入口，此时任何判定都不可信
     if (doc.querySelector('[data-testid="loginButton"], input[autocomplete="username"]')) {
@@ -867,6 +906,7 @@
     var alerts = doc.querySelectorAll(SEL.alert);
     var checked = 0;
     for (var i = 0; i < alerts.length && checked < 30; i += 1) {
+      if (alerts[i].closest(SEL.userCell) || !statusIsVisible(alerts[i])) continue;
       var text = textOf(alerts[i]);
       if (!text) continue;
       checked += 1;
@@ -877,20 +917,36 @@
       }
       if (/something went wrong|try reloading|出错了|出现问题|请重试/i.test(text)) {
         issues.blocked = true;
+        issues.pageError = isExplicitPageErrorText(text) || /try reloading|请尝试重新加载/i.test(text);
         issues.blockedReason = text.slice(0, 120);
         return issues;
       }
     }
 
-    // 空列表提示（仅用于把「0 个结果」与「加载失败」区分开）
-    var spans = column.querySelectorAll("span");
-    for (var j = 0; j < spans.length && j < 4000; j += 1) {
+    // X 的列表加载失败不一定使用 role=alert：截图中的主列只渲染一段普通文案。
+    // 仅接受短且完整的错误状态句，避免把用户简介里的「出错了」误判成页面故障。
+    var spans = column.querySelectorAll("span:not(" + SEL.userCell + " *)");
+    for (var j = 0; j < spans.length; j += 1) {
       var t = textOf(spans[j]);
       if (!t || t.length > 80) continue;
-      if (/aren't following anyone|not following anyone|还没有关注任何人|尚未关注任何人/i.test(t)) {
-        issues.empty = true;
-        break;
+      if (isExplicitPageErrorText(t) && statusIsVisible(spans[j])) {
+        issues.blocked = true;
+        issues.pageError = true;
+        issues.blockedReason = "X 页面没有成功加载：" + t + " 扫描已暂停，已扫描结果已保留；请点页面上的“重试”或刷新后继续。";
+        return issues;
       }
+      if (/aren['’]t following anyone|not following anyone|don['’]t have any followers|no followers yet|还没有关注任何人|尚未关注任何人|还没有关注者|暂无关注者|还没有粉丝/i.test(t) && statusIsVisible(spans[j])) {
+        issues.empty = true;
+      }
+    }
+
+    // 某些 X 版本把错误标题和“重试”拆成多个节点，单独文案可能无法完整拼接。
+    // 主列中出现可见的重试控件已足以证明列表没有正常到末尾。
+    if (findPageRetryControl(doc)) {
+      issues.blocked = true;
+      issues.pageError = true;
+      issues.blockedReason = "X 页面出现重试入口，列表未完整加载。扫描已暂停，已扫描结果已保留；请处理页面错误后继续。";
+      return issues;
     }
     return issues;
   }
@@ -1163,6 +1219,7 @@
     mergeProgressRows: mergeProgressRows,
     resolveProgressWrite: resolveProgressWrite,
     detectPageIssues: detectPageIssues,
+    findPageRetryControl: findPageRetryControl,
     isVisible: isVisible,
     textOf: textOf,
     parseHM: parseHM,

@@ -1,6 +1,6 @@
 {
   "name": "x-follow-manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Chrome MV3 extension: find and batch-unfollow non-followers on X",
   "type": "commonjs",

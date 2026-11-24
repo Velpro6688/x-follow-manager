@@ -508,6 +508,77 @@ test("检测限流提示", () => {
   assert.equal(issues.blocked, true);
 });
 
+test("检测主列中没有 role=alert 的列表加载失败状态", () => {
+  const { C, window } = createEnv(
+    `<div data-testid="primaryColumn">
+      <section>${userCell({ handle: "already_loaded" })}</section>
+      <div><span>出错了。请尝试重新加载。</span></div>
+      <div role="button"><span>重试</span></div>
+    </div>`
+  );
+  const issues = C.detectPageIssues(window.document);
+  assert.equal(issues.blocked, true);
+  assert.equal(issues.pageError, true);
+  assert.match(issues.blockedReason, /已扫描结果已保留/);
+  assert.match(issues.blockedReason, /重试/);
+});
+
+test("中文逗号分隔的 X 加载错误也能识别", () => {
+  const { C, window } = createEnv(
+    `<div data-testid="primaryColumn"><span>出错了，请尝试重新加载。</span></div>`
+  );
+  const issues = C.detectPageIssues(window.document);
+  assert.equal(issues.blocked, true);
+  assert.equal(issues.pageError, true);
+});
+
+test("只返回主列中可见且可用的原生重试控件", () => {
+  const { C, window } = createEnv(`
+    <main data-testid="primaryColumn">
+      <section hidden><button>重试</button></section>
+      <div data-testid="UserCell"><button>重试</button></div>
+      <button disabled>重试</button>
+      <button aria-label="重試"></button>
+    </main>
+  `);
+  const control = C.findPageRetryControl(window.document);
+  assert.ok(control);
+  assert.equal(control.getAttribute("aria-label"), "重試");
+});
+
+test("用户简介里的“出错了”不会误判为整页加载失败", () => {
+  const { C, window } = createEnv(
+    `<div data-testid="primaryColumn">
+      <div data-testid="UserCell">
+        <div data-testid="User-Name">
+          <a href="/writer"><span>Writer</span></a>
+          <a href="/writer"><span>@writer</span></a>
+        </div>
+        <span>出错了。请尝试重新加载。</span>
+        <div role="button" data-testid="1-unfollow"><span>正在关注</span></div>
+      </div>
+    </div>`
+  );
+  const issues = C.detectPageIssues(window.document);
+  assert.equal(issues.blocked, false);
+  assert.equal(issues.pageError, false);
+});
+
+test("隐藏的错误模板和已折叠的重试按钮不影响当前列表", () => {
+  const { C, window } = createEnv(`<main data-testid="primaryColumn">
+    <section hidden><span>出错了。请尝试重新加载。</span><div role="progressbar"></div></section>
+    <button aria-hidden="true">重试</button></main>`);
+  const issues = C.detectPageIssues(window.document);
+  assert.equal(issues.loading, false);
+  assert.equal(issues.blocked, false);
+});
+
+test("数十个列表按钮之后仍能识别图标重试控件", () => {
+  const { C, window } = createEnv(`<main data-testid="primaryColumn">
+    ${'<button>更多</button>'.repeat(45)}<button aria-label="重試"></button></main>`);
+  assert.equal(C.detectPageIssues(window.document).pageError, true);
+});
+
 test("空列表提示与普通空页面区分", () => {
   const { C, window } = createEnv(
     `<div data-testid="primaryColumn"><span>You aren't following anyone yet.</span></div>`

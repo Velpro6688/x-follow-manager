@@ -130,6 +130,9 @@
 /* chrome API stub（让 content.js 在普通网页中可运行）                   */
 /* ------------------------------------------------------------------ */
 var PARAMS = new URLSearchParams(location.search);
+window.__xfmTestScanRecoveryTiming = PARAMS.get("retryfast") === "1"
+  ? { confirmMs: 80, delaysMs: [1200, 80, 80], settleMs: 400, pollMs: 40 }
+  : null;
 var STUB_LIMIT = Math.min(200, Math.max(1, parseInt(PARAMS.get("limit") || "50", 10) || 50));
 var NO_MUTUAL = PARAMS.get("nomutual") === "1";
 var DARK = PARAMS.get("dark") === "1";
@@ -492,6 +495,7 @@ var BG_STALL = PARAMS.get("bgstall") === "1";
 var STORAGE_LAG = Math.max(0, parseInt(PARAMS.get("storagelag") || "0", 10) || 0);
 /* ?recyclemid=1 虚拟模式下，视口中段行在首行/行数/页高不变时被复用为新账号（探针盲区构造） */
 var RECYCLE_MID = PARAMS.get("recyclemid") === "1";
+var INLINE_RECOVER_ON_RETRY = false;
 var MID_POOL = [];
 var MID_USED = 0;
 (function initMidPool() {
@@ -839,6 +843,34 @@ function showAlert(text) {
 /** 供端到端测试触发页面级错误 */
 window.__mockFail = function (text) {
   showAlert(text || "Something went wrong. Try reloading.");
+};
+
+/** 模拟真实 X 的主列错误态：没有 role=alert，也没有列表末尾 sentinel，错误和转圈可同时存在 */
+window.__mockInlineFail = function (options) {
+  INLINE_RECOVER_ON_RETRY = !!(options && options.recoverOnRetry);
+  var list = document.getElementById("list");
+  if (list) list.innerHTML = "";
+  endEl.hidden = true;
+  var old = document.getElementById("mock-page-error");
+  if (old) old.remove();
+  var box = document.createElement("div");
+  box.id = "mock-page-error";
+  box.style.cssText = "padding:96px 20px;text-align:center;color:#536471;";
+  box.innerHTML =
+    '<div><span>出错了。请尝试重新加载。</span></div>' +
+    '<div role="progressbar" aria-label="正在加载"></div>' +
+    '<div role="button" tabindex="0" style="display:inline-flex;margin-top:24px;padding:10px 28px;border-radius:999px;background:#1d9bf0;color:#fff;">' +
+      '<span>重试</span>' +
+    "</div>";
+  box.querySelector('[role="button"]').addEventListener("click", function () {
+    window.__mockRetryClicks = (window.__mockRetryClicks || 0) + 1;
+    if (!INLINE_RECOVER_ON_RETRY) return;
+    INLINE_RECOVER_ON_RETRY = false;
+    box.remove();
+    reset();
+  });
+  document.querySelector('[data-testid="primaryColumn"]').appendChild(box);
+  window.scrollTo(0, 0);
 };
 
 /** 供端到端测试把指定账号滚进视口（虚拟模式下按偏移量直接跳） */

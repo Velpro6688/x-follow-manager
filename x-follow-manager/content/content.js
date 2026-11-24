@@ -31,7 +31,7 @@
   /* 常量与状态                                                          */
   /* ------------------------------------------------------------------ */
 
-  var VERSION = "1.0.0";
+  var VERSION = "1.0.1";
   var STORAGE_KEY = "xfm.settings.v1";
   var PROGRESS_KEY = "xfm.scan.progress.v1";
   var PROGRESS_SAVE_INTERVAL_MS = 5000; // 进度保存节流：后台/前台都不每扫一人写一次
@@ -46,6 +46,12 @@
   var SCAN_BG_RETRY_MS = 8000;     // 后台加载受限时的低频重试间隔
   var SCAN_BG_RENDER_MS = 5000;    // 后台渲染节流：提示变化至少隔这么久才写一次 DOM
   var SCAN_MAX_ROUNDS = 900;
+  var SCAN_RECOVERY_CONFIRM_MS = 700;
+  var SCAN_RECOVERY_DELAYS_MS = [5000, 15000, 30000];
+  var SCAN_RECOVERY_SETTLE_MS = 7000;
+  var SCAN_RECOVERY_POLL_MS = 250;
+  var SCAN_RECOVERY_PACE_START_MS = 1200;
+  var SCAN_RECOVERY_PACE_MAX_MS = 2500;
   var UNFOLLOW_CONFIRM_WAIT_MS = 2200;
   var UNFOLLOW_RESULT_WAIT_MS = 8000;
   var UNFOLLOW_CONFIRM_TEXT = /^(Unfollow|取消关注|取消關注|取消跟隨|取消追蹤|取消追踪|停止跟隨)$/i;
@@ -85,6 +91,10 @@
       hidden: false,       // 页面当前不可见（后台继续扫描，速度可能降低）
       bgLimited: false,    // 后台加载受限：连续无新增时不再滚动，等回前台复核
       pendingRecheck: false, // 回到前台 / 继续扫描时要求重新评估空闲与加载状态
+      recovering: false,
+      recoveryAttempts: 0,
+      recoveryPaceMs: 0,
+      pageIssue: "",
       stopReason: "",
       error: "",
       skippedRows: 0,
@@ -811,7 +821,10 @@
       phaseTone = "run";
     }
     else if (state.phase === "scanned") { phaseLabel = T("state.scanned"); phaseTone = "ok"; }
-    else if (state.phase === "partial") { phaseLabel = "结果不完整"; phaseTone = "bad"; }
+    else if (state.phase === "partial") {
+      phaseLabel = state.scan.pageIssue ? "扫描已中断" : "结果不完整";
+      phaseTone = "bad";
+    }
     else if (state.phase === "failed") { phaseLabel = "扫描失败"; phaseTone = "bad"; }
     else if (state.phase === "running") { phaseLabel = "执行中"; phaseTone = "run"; }
     else if (state.phase === "done") { phaseLabel = "本批已结束"; phaseTone = "ok"; }
@@ -828,8 +841,12 @@
     }
 
     var canSelect = !busy && stats.oneWay > 0;
-    // 扫描失败说明页面可能已异常，禁止执行；用户主动停止（partial）仍允许按已确认候选执行
-    var canUnfollow = !busy && stats.selected > 0 && !integrity.blocked && state.phase !== "failed" && !identityLocked;
+    // 扫描失败或页面加载中断说明结果不可验证，禁止执行；用户主动停止（partial）仍允许按已确认候选执行
+    var currentPageIssues = busy ? null : C.detectPageIssues(document);
+    var pageErrorBlocked = state.phase === "partial" && !!state.scan.pageIssue;
+    var livePageBlocked = !!(currentPageIssues && currentPageIssues.blocked);
+    var canUnfollow = !busy && stats.selected > 0 && !integrity.blocked &&
+      state.phase !== "failed" && !pageErrorBlocked && !livePageBlocked && !identityLocked;
 
     var excludedCount = 0;
     for (var ei = 0; ei < rows.length; ei += 1) {
@@ -856,6 +873,8 @@
       var runText;
       if (state.scan.userPaused) {
         runText = "已暂停 · 已扫描 " + stats.total + " 人";
+      } else if (state.scan.recovering) {
+        runText = state.notice || ("X 列表加载异常，正在自动恢复 · 已扫描 " + stats.total + " 人");
       } else if (state.scan.bgLimited) {
         runText = "后台加载受限，切回 X 可继续 · 已保存 " + stats.total + " 人";
       } else if (document.hidden) {
@@ -1630,6 +1649,128 @@
     }
   }
 
+  /**
+   * X 长列表偶尔会临时停止分页，并在主列显示“出错了 / 重试”。
+   * 自动恢复有严格上限：先延迟复核，再有限次点击 X 自己的重试按钮；
+   * 任一等待都可被停止、暂停、切页或回到前台打断。
+   */
+  function scanRecoveryTiming() {
+    var override = typeof globalThis !== "undefined" ? globalThis.__xfmTestScanRecoveryTiming : null;
+    if (override && typeof override === "object") {
+      return {
+        confirmMs: Math.max(0, Number(override.confirmMs) || 0),
+        delaysMs: Array.isArray(override.delaysMs) && override.delaysMs.length ? override.delaysMs : SCAN_RECOVERY_DELAYS_MS,
+        settleMs: Math.max(0, Number(override.settleMs) || 0),
+        pollMs: Math.max(20, Number(override.pollMs) || SCAN_RECOVERY_POLL_MS)
+      };
+    }
+    return {
+      confirmMs: SCAN_RECOVERY_CONFIRM_MS,
+      delaysMs: SCAN_RECOVERY_DELAYS_MS,
+      settleMs: SCAN_RECOVERY_SETTLE_MS,
+      pollMs: SCAN_RECOVERY_POLL_MS
+    };
+  }
+
+  function scanRecoveryInterrupted(scanObj) {
+    return !scanObj.active || scanObj.abort || state.scan !== scanObj ||
+      scanObj.userPaused || scanObj.pendingRecheck || !verifyPage(scanObj.page).ok;
+  }
+
+  function stopPageRecoveryIfInterrupted(scanObj) {
+    if (!scanRecoveryInterrupted(scanObj)) return false;
+    scanObj.recovering = false;
+    return true;
+  }
+
+  function finishPageRecovery(scanObj) {
+    scanObj.recovering = false;
+    scanObj.pageIssue = "";
+    scanObj.recoveryPaceMs = Math.min(
+      SCAN_RECOVERY_PACE_MAX_MS,
+      Math.max(SCAN_RECOVERY_PACE_START_MS, (scanObj.recoveryPaceMs || 0) + 600)
+    );
+    state.notice = "X 列表已恢复，继续扫描…（已扫描 " + state.rows.size + " 人）";
+    renderThrottled();
+    U.toast("X 列表已恢复，已自动继续扫描");
+  }
+
+  async function recoverPageErrorDuringScan(scanObj, initialIssues) {
+    if (!scanObj.active || scanObj.abort || !initialIssues || !initialIssues.pageError) return false;
+    var timing = scanRecoveryTiming();
+    scanObj.recovering = true;
+    scanObj.pageIssue = initialIssues.blockedReason || "X 列表加载失败";
+    state.notice = "X 列表加载中断，正在复核页面状态…（已扫描 " + state.rows.size + " 人）";
+    renderThrottled();
+    U.toast("X 列表暂时加载失败，将自动等待并重试");
+    await saveScanProgress(true);
+
+    await sleepInterruptible(timing.confirmMs);
+    if (stopPageRecoveryIfInterrupted(scanObj)) return true;
+    var issues = C.detectPageIssues(document);
+    if (!issues.blocked) {
+      finishPageRecovery(scanObj);
+      return true;
+    }
+    if (!issues.pageError) {
+      if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
+      finishScan("failed", issues.blockedReason || "页面出现限制或验证");
+      return false;
+    }
+
+    for (var attempt = scanObj.recoveryAttempts || 0; attempt < timing.delaysMs.length; attempt += 1) {
+      var waitMs = Math.max(0, Number(timing.delaysMs[attempt]) || 0);
+      scanObj.recoveryAttempts = attempt + 1;
+      state.notice = "X 列表暂时加载失败，" + Math.ceil(waitMs / 1000) +
+        " 秒后自动重试（第 " + scanObj.recoveryAttempts + "/" + timing.delaysMs.length +
+        " 次）· 已保留 " + state.rows.size + " 人";
+      renderThrottled();
+      await sleepInterruptible(waitMs);
+      if (stopPageRecoveryIfInterrupted(scanObj)) return true;
+
+      issues = C.detectPageIssues(document);
+      if (!issues.blocked) {
+        finishPageRecovery(scanObj);
+        return true;
+      }
+      if (!issues.pageError) {
+        if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
+        finishScan("failed", issues.blockedReason || "页面出现限制或验证");
+        return false;
+      }
+
+      var retryControl = C.findPageRetryControl(document);
+      if (!retryControl) continue;
+      try {
+        retryControl.click();
+      } catch (err) {
+        debugLog("scan.recovery.clickFailed", { message: String(err && err.message || err) });
+        continue;
+      }
+      state.notice = "已自动触发 X 的“重试”，正在等待列表恢复…（已保存 " + state.rows.size + " 人）";
+      renderThrottled();
+
+      var deadline = Date.now() + timing.settleMs;
+      while (Date.now() < deadline) {
+        await sleepInterruptible(timing.pollMs);
+        if (stopPageRecoveryIfInterrupted(scanObj)) return true;
+        issues = C.detectPageIssues(document);
+        if (!issues.blocked) {
+          finishPageRecovery(scanObj);
+          return true;
+        }
+      }
+    }
+
+    var reason = "X 列表连续 " + timing.delaysMs.length +
+      " 次自动重试仍出现加载错误。已保存扫描结果，请等待几分钟或切换网络后，再点“继续扫描”。";
+    scanObj.recovering = false;
+    scanObj.pageIssue = reason;
+    if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
+    finishScan("partial", reason);
+    return false;
+  }
+
   /** 后台渲染节流：提示变化至少隔 SCAN_BG_RENDER_MS 才写一次 DOM */
   function renderThrottled() {
     if (!document.hidden) {
@@ -1681,6 +1822,7 @@
       active: true, abort: false, complete: false,
       userPaused: false, hidden: document.hidden,
       bgLimited: false, pendingRecheck: false,
+      recovering: false, recoveryAttempts: 0, recoveryPaceMs: 0, pageIssue: "",
       stopReason: "",
       error: "", skippedRows: 0, rounds: 0, startedAt: Date.now(), integrity: null,
       previousFilter: state.filter,
@@ -1785,21 +1927,6 @@
         harvest();
       }
 
-      // 用户正在手动滚动 → 暂停自动滚动，别把页面抢回来
-      if (Date.now() - lastUserScrollAt < 1200) {
-        // 已到底、只是在做收尾确认时，用户一接管就直接结束，避免继续拉扯
-        if (idleRounds >= 1 && !document.hidden && !(state.scheduledRun && state.scheduledRun.active)) {
-          finishScan("scanned", "");
-          break;
-        }
-        state.notice = "检测到你在手动滚动，已暂停自动滚动；停手后自动继续";
-        renderThrottled();
-        await sleep(400);
-        continue;
-      }
-
-      state.scan.rounds += 1;
-
       if (!verifyPage(state.scan.page).ok) {
         finishScan("partial", "页面已切换，扫描中止");
         break;
@@ -1807,14 +1934,35 @@
 
       var issues = C.detectPageIssues(document);
       if (issues.blocked) {
+        var blockedReason = issues.blockedReason || "页面出现限制或验证";
+        if (issues.pageError) {
+          await recoverPageErrorDuringScan(scanObj, issues);
+          continue;
+        }
         if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
-        finishScan("failed", issues.blockedReason || "页面出现限制或验证");
+        finishScan("failed", blockedReason);
         break;
       }
 
+      // 手动滚动期间让出页面，也要走相同的页面、加载、空列表检查。
+      if (Date.now() - lastUserScrollAt < 1200) {
+        if (idleRounds >= 1 && !document.hidden && !issues.loading && atBottom() &&
+            !(state.scheduledRun && state.scheduledRun.active)) {
+          finishAtListEnd(issues);
+          break;
+        }
+        state.notice = "检测到你在手动滚动，已暂停自动滚动；停手后自动继续";
+        idleRounds = 0;
+        renderThrottled();
+        await sleep(400);
+        continue;
+      }
+
+      state.scan.rounds += 1;
       harvest();
       var fresh = scanFresh.size;
       if (fresh > lastFresh) {
+        scanObj.recoveryAttempts = 0;
         scheduledLastGrowth = Date.now();
         if (fresh > 0 && state.scheduledRun && state.scheduledRun.active && Date.now() - scheduledLastProgressReport >= 60000) {
           scheduledLastProgressReport = Date.now();
@@ -1870,7 +2018,7 @@
           await sleep(SCAN_BG_RETRY_MS);
           continue;
         }
-        finishScan("scanned", "");
+        finishAtListEnd(issues);
         break;
       }
 
@@ -1905,6 +2053,7 @@
         scrollByY(Math.max(400, Math.floor(getViewportHeight() * SCAN_STEP_RATIO)));
         await waitForGrowth(SCAN_SETTLE_FAST_MS);
       }
+      if (scanObj.recoveryPaceMs > 0) await sleepInterruptible(scanObj.recoveryPaceMs);
     }
 
     if (state.scan.rounds >= SCAN_MAX_ROUNDS && state.phase === "scanning") {
@@ -1912,10 +2061,59 @@
     }
   }
 
+  function finishAtListEnd(issues) {
+    var column = document.querySelector(C.SELECTORS.primaryColumn);
+    if ((issues.empty && state.rows.size === 0) ||
+        (state.rows.size > 0 && column && column.querySelector(C.SELECTORS.userCell))) {
+      finishScan("scanned", "");
+      return;
+    }
+    state.scan.pageIssue = "当前页面没有显示账号或可核实的列表末尾，请等待加载或刷新后继续。";
+    finishScan("partial", state.scan.pageIssue);
+  }
+
+  async function reopenCompletedProgressAfterLateError(scanObj, key) {
+    try {
+      await (scanObj.progressClearPromise || Promise.resolve());
+      if (state.scan !== scanObj || state.phase !== "partial" || !scanObj.pageIssue || progressKey() !== key) return;
+      var reopened = await coordProgress({ type: "XFM_COORD_PROGRESS_BEGIN", key: key });
+      if (state.scan !== scanObj || state.phase !== "partial" || !scanObj.pageIssue || progressKey() !== key) return;
+      scanObj.progressGeneration = reopened.generation;
+      await saveScanProgress(true);
+    } catch (err) {
+      if (state.scan === scanObj && !progressSaveFailed) {
+        progressSaveFailed = true;
+        U.toast("扫描进度保存失败，进度可能无法恢复");
+      }
+    }
+  }
+
+  // 列表停止增长后，X 可能才渲染加载错误。即使用户不操作，也要撤回完成状态并恢复进度。
+  function interruptCompletedScan(issues) {
+    if (state.phase !== "scanned" || !verifyPage(state.scan.page).ok) return false;
+    issues = issues || C.detectPageIssues(document);
+    if (!issues.pageError) return false;
+    var scanObj = state.scan;
+    var key = scanObj.progressKey || progressKey();
+    state.phase = "partial";
+    scanObj.recovering = false;
+    scanObj.pageIssue = issues.blockedReason || "X 列表加载不完整";
+    scanObj.stopReason = scanObj.pageIssue;
+    state.notice = scanObj.pageIssue;
+    state.hint = "";
+    state.warning = "";
+    if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
+    U.cancelDialog();
+    render();
+    if (key) void reopenCompletedProgressAfterLateError(scanObj, key);
+    return true;
+  }
+
   function finishScan(phase, reason) {
     void releaseScanActivity(state.scan.activityId);
     state.scan.active = false;
     state.scan.abort = true;   // 必须为 true：循环条件靠它退出，设 false 会让自动滚动继续跑
+    state.scan.recovering = false;
 
     // 收尾再收一次：真实 X 会在停到底部时又补几行，最后一次 harvest 能把它们捞进来
     if (phase !== "failed") {
@@ -1940,7 +2138,7 @@
     } else if (phase === "partial") {
       state.phase = "partial";
       state.scan.stopReason = reason || "扫描未完成";
-      state.notice = state.scan.stopReason + "（已保留已扫描结果）";
+      state.notice = state.scan.pageIssue ? state.scan.stopReason : state.scan.stopReason + "（已保留已扫描结果）";
     } else {
       state.phase = "scanned";
       state.notice = "已到达列表末尾，共 " + rows.length + " 个账号";
@@ -1954,7 +2152,7 @@
     if (phase === "scanned") {
       // 正常完成：未完成进度不再需要，清掉避免下次回来误提示恢复
       if (state.scan.progressGeneration != null) {
-        void clearSavedProgress(state.scan.progressGeneration, state.scan.progressKey);
+        state.scan.progressClearPromise = clearSavedProgress(state.scan.progressGeneration, state.scan.progressKey);
       }
     } else {
       // 停止/受限/失败：补存，刷新后还能恢复
@@ -1978,6 +2176,12 @@
   async function runScheduledChain() {
     if (!state.scheduledRun || !state.scheduledRun.active) return;
     var sr = state.scheduledRun;
+    var pageIssues = C.detectPageIssues(document);
+    if (pageIssues.blocked) {
+      interruptCompletedScan(pageIssues);
+      void finishScheduledRun("failed", pageIssues.blockedReason);
+      return;
+    }
     if (state.phase !== "scanned" || readSelfHandle() !== sr.account || sr.count > (sr.batchLimit || state.batchLimit) || !verifyExecutionAllowed(state.scan.page).ok) {
       void finishScheduledRun("failed", "扫描或账号校验未通过");
       return;
@@ -2044,6 +2248,7 @@
     state.scan.active = false;
     state.scan.userPaused = false;
     state.scan.bgLimited = false;
+    state.scan.recovering = false;
     state.phase = "partial";
     state.scan.stopReason = "已手动停止，结果不完整";
     state.notice = state.scan.stopReason;
@@ -2275,6 +2480,23 @@
       U.toast("扫描失败，请重新扫描后再执行");
       return;
     }
+    if (state.phase === "partial" && state.scan.pageIssue) {
+      U.toast("页面加载中断，请先恢复页面并继续扫描后再执行");
+      return;
+    }
+    var liveIssues = C.detectPageIssues(document);
+    if (liveIssues.blocked) {
+      var liveReason = liveIssues.blockedReason || "页面出现限制或错误";
+      if (liveIssues.pageError && !interruptCompletedScan(liveIssues)) {
+        state.phase = "partial";
+        state.scan.pageIssue = liveReason;
+        state.scan.stopReason = liveReason;
+      }
+      state.notice = liveReason;
+      render();
+      U.toast("页面出现限制或错误，已阻止批量操作");
+      return;
+    }
 
     var rows = currentRows();
     // 定时运行使用周期开始时的批次上限快照；手动执行沿用当前设置
@@ -2353,6 +2575,13 @@
     if (!await checkRunLock() || !verifyExecutionAllowed(taskPage).ok) {
       releaseRunLock();
       U.toast("页面已切换，本批未执行");
+      return;
+    }
+    var confirmedIssues = C.detectPageIssues(document);
+    if (confirmedIssues.blocked || (state.phase === "partial" && state.scan.pageIssue)) {
+      interruptCompletedScan(confirmedIssues);
+      releaseRunLock();
+      U.toast("页面加载中断，本批未执行");
       return;
     }
 
@@ -2899,7 +3128,7 @@
         var expectedMode = taskKey === "followback" ? C.MODE.REPLY : C.MODE.CLEANUP;
         // 启用（含重新启用已有授权任务）一律要求当前对应列表已完成扫描：
         // 授权绑定的是“扫描时的账号+名单状态”，隔次启用不能沿用旧授权跳过校验
-        if (task.enabled && (state.phase !== "scanned" || state.mode !== expectedMode || !verifyExecutionAllowed(state.scan.page).ok)) {
+        if (task.enabled && (interruptCompletedScan() || state.phase !== "scanned" || state.mode !== expectedMode || !verifyExecutionAllowed(state.scan.page).ok)) {
           U.toast("请先完成对应列表的扫描");
           return Promise.resolve({ ok: false, reason: "请先完成对应列表的扫描并确认账号" });
         }
@@ -2933,6 +3162,7 @@
   function handleAction(act) {
     if (act === "sched") { void openScheduledDialog(); return; }
     if (act === "scan") {
+      if (interruptCompletedScan()) return;
       if (state.phase === "scanning") return;
       var canResume = state.phase === "partial" && state.rows.size > 0;
       // 重新扫描会回到顶部并清空勾选；不是大损失但要提前说一声
@@ -3079,6 +3309,7 @@
     watchdogTimer = window.setInterval(function () {
       var page = detectPage();
       if (!page) return;
+      interruptCompletedScan();
       if (!U.isMounted()) {
         state.uiMounted = false;
         activate();
@@ -3113,6 +3344,7 @@
   /* ------------------------------------------------------------------ */
 
   function buildPopupStatus() {
+    interruptCompletedScan();
     var stats = C.countStats(currentRows(), state.selected, candidateRel());
     return {
       url: location.href,
@@ -3328,6 +3560,7 @@
     });
     // 刷新/关闭前的兜底补存（尽力而为，不保证成功；丢失范围取决于最后一次成功保存的时间）
     window.addEventListener("pagehide", function () {
+      if (interruptCompletedScan()) return;
       if (state.scan.active || state.phase === "partial") saveScanProgress(true);
     });
     activate();

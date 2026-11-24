@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X 关注管理台",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "在 X（Twitter）关注列表识别未回关账号并批量取关，也能在粉丝列表批量回关。全程本地运行。",
   "minimum_chrome_version": "102",
   "permissions": ["storage", "alarms", "notifications"],

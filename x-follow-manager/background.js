@@ -137,8 +137,8 @@ var scheduledActiveKey = "xfm.scheduled.active.v1";
 var navigationWatchdogName = "xfm-navigation-watch";
 var actionWatchdogName = "xfm-action-watch";
 var phaseWatchdogName = "xfm-phase-watch";
-// Fail closed until the complete scheduled-action safety and interruption path is verified.
-var scheduledExecutionReady = false;
+// 定时任务已通过单元、时区和浏览器流程验收，允许公开发布。
+var scheduledExecutionReady = true;
 
 function schedAlarmName(taskKey) { return SCHED_ALARM_PREFIX + taskKey; }
 

@@ -543,16 +543,23 @@ async function runJump(cdp) {
 }
 
 async function runFail(cdp) {
-  console.log("\n[8] 扫描中页面报错");
+  console.log("\n[8] 扫描中错误与加载指示器同时持续存在，有限次自动重试后暂停");
   await clickAction(cdp, "scan");
   await sleep(1400);
-  await cdp.evaluate(`window.__mockFail()`);
-  await waitFor(async () => (await phaseText(cdp)).includes("扫描失败"), 10000, "扫描失败状态");
+  await cdp.evaluate(`window.__mockInlineFail()`);
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描已中断"), 10000, "扫描已中断状态");
+  const phase = await phaseText(cdp);
   const status = await statusText(cdp);
-  console.log(`  状态: ${status}`);
+  const total = Number(await stat(cdp, "total"));
+  const retryClicks = Number(await cdp.evaluate(`window.__mockRetryClicks || 0`));
+  console.log(`  状态: ${phase} / ${status}；自动重试 ${retryClicks} 次；保留已扫描 ${total} 人`);
+  if (phase.includes("扫描完成")) throw new Error("页面报错时不得标记扫描完成");
+  if (total <= 0) throw new Error("页面报错前已扫描到的账号应保留");
+  if (retryClicks !== 3) throw new Error(`持续错误应严格自动重试 3 次，实际 ${retryClicks}`);
   if (!/出错|错误|重试|Something|went wrong/i.test(status)) {
     throw new Error("失败原因应可读，而不是静默显示 0 个");
   }
+  if (!/连续 3 次/.test(status)) throw new Error("持续失败原因应写明自动重试次数");
 
   // 失败前已扫描到的账号仍可勾选，但不允许执行
   await cdp.evaluate(`(${SR}.querySelector('[data-role="qty"]')).value = "2"`);
@@ -563,9 +570,92 @@ async function runFail(cdp) {
 
   const selected = await stat(cdp, "selected");
   const canUnfollow = await cdp.evaluate(`!(${SR}.querySelector('[data-act="unfollow"]')).disabled`);
-  console.log(`  已选 ${selected} 个，取消关注按钮可用: ${canUnfollow}`);
-  if (canUnfollow) throw new Error("扫描失败后即使选中账号也不应允许执行");
-  await cdp.shot("10-scan-failed");
+  const scanLabel = await cdp.evaluate(`(${SR}.querySelector('[data-act="scan"]')||{}).textContent || ""`);
+  console.log(`  已选 ${selected} 个，取消关注按钮可用: ${canUnfollow}；恢复入口: ${scanLabel}`);
+  if (selected !== "2") throw new Error(`已扫描结果应仍可供选择，实际选中 ${selected}`);
+  if (canUnfollow) throw new Error("页面加载中断后，即使选中账号也不应允许执行");
+  if (!scanLabel.includes("继续扫描")) throw new Error("页面加载中断后应提供继续扫描入口");
+  await cdp.shot("10-scan-interrupted");
+}
+
+async function runRetryRecover(cdp) {
+  console.log("\n[8a] X 重试成功后自动继续扫描");
+  await clickAction(cdp, "scan");
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描中"), 5000, "进入扫描中");
+  await sleep(700);
+  await cdp.evaluate(`window.__mockRetryClicks = 0; window.__mockInlineFail({ recoverOnRetry: true })`);
+  await waitFor(() => cdp.evaluate(`(() => {
+    const text = ${SR}.querySelector('[data-role="runtext"]');
+    return !!text && /自动重试/.test(text.textContent);
+  })()`), 5000, "显示自动重试状态");
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描完成"), 20000, "自动重试后继续完成扫描");
+  const retryClicks = Number(await cdp.evaluate(`window.__mockRetryClicks || 0`));
+  const total = Number(await stat(cdp, "total"));
+  const phase = await phaseText(cdp);
+  console.log(`  状态: ${phase}；自动重试 ${retryClicks} 次；扫描 ${total} 人`);
+  if (retryClicks !== 1) throw new Error(`恢复只需要点击一次 X 重试，实际 ${retryClicks}`);
+  if (total !== 20) throw new Error(`自动恢复后应完成全部 20 人，实际 ${total}`);
+  await cdp.shot("54-auto-retry-recover");
+}
+
+async function runRetryPause(cdp) {
+  console.log("\n[8a2] 自动恢复等待期间可以暂停且不会偷偷点击");
+  await clickAction(cdp, "scan");
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描中"), 5000, "进入扫描中");
+  await sleep(500);
+  await cdp.evaluate(`window.__mockRetryClicks = 0; window.__mockInlineFail()`);
+  await waitFor(() => cdp.evaluate(`/自动重试/.test(${SR}.querySelector('[data-role="runtext"]').textContent)`), 5000, "显示自动重试状态");
+  await clickAction(cdp, "pauseScan");
+  await waitFor(() => cdp.evaluate(`/已暂停/.test(${SR}.querySelector('[data-role="runtext"]').textContent)`), 5000, "暂停自动恢复");
+  await sleep(500);
+  const retryClicks = Number(await cdp.evaluate(`window.__mockRetryClicks || 0`));
+  const pauseLabel = await cdp.evaluate(`${SR}.querySelector('[data-act="pauseScan"]').textContent`);
+  console.log(`  暂停后按钮「${pauseLabel}」，重试点击 ${retryClicks} 次`);
+  if (retryClicks !== 0) throw new Error("暂停后不应继续点击 X 重试");
+  if (pauseLabel !== "继续") throw new Error("暂停后可提供继续入口");
+  await clickAction(cdp, "stop");
+  await waitFor(async () => /结果不完整|扫描已中断/.test(await phaseText(cdp)), 5000, "停止恢复并保留进度");
+  await cdp.shot("55-auto-retry-pause");
+}
+
+async function runErrorAfterScan(cdp) {
+  console.log("\n[8b] 扫描完成后页面才报错");
+  const scanned = await runScan(cdp);
+  await cdp.evaluate(`window.__mockInlineFail()`);
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描已中断"), 6000, "页面报错后无需操作就撤销完成状态");
+  const label = await cdp.evaluate(`${SR}.querySelector('[data-act="scan"]').textContent`);
+  if (!label.includes("继续扫描")) throw new Error("迟到的加载错误应显示继续扫描");
+  await waitFor(() => cdp.evaluate(`Object.values(JSON.parse(localStorage.getItem("xfm-store") || "{}"))
+    .some(e => e.partial && e.rows && e.rows.length === ${scanned.total})`), 5000, "原名单重新保存为未完成进度");
+  await setQty(cdp, 2);
+  await clickAction(cdp, "auto");
+  await sleep(400);
+
+  const selected = await stat(cdp, "selected");
+  const disabled = await cdp.evaluate(`(${SR}.querySelector('[data-act="unfollow"]')).disabled`);
+  console.log(`  已扫描 ${scanned.total} 人；报错后选择 ${selected} 人，取关按钮 disabled=${disabled}`);
+  if (selected !== "2") throw new Error("报错前的扫描结果应仍可查看和选择");
+  if (!disabled) throw new Error("扫描后出现页面错误时，取关按钮必须立即锁定");
+
+  // 绕过 disabled 直接派发点击，验证 runUnfollow 还有第二道运行时拦截。
+  await cdp.evaluate(`(() => {
+    const b = ${SR}.querySelector('[data-act="unfollow"]');
+    b.disabled = false;
+    b.click();
+  })()`);
+  await sleep(500);
+  const phase = await phaseText(cdp);
+  const hasDialog = await cdp.evaluate(`!!${SR}.querySelector('.overlay')`);
+  console.log(`  强制点击后状态: ${phase}；出现确认框: ${hasDialog}`);
+  if (phase.includes("扫描完成")) throw new Error("页面错误出现后不得继续显示扫描完成");
+  if (hasDialog) throw new Error("运行时防护应阻止打开取关确认框");
+  await cdp.shot("10b-error-after-scan");
+  await cdp.send("Page.reload", {});
+  await waitFor(() => cdp.evaluate(`document.querySelector('[data-xfm-panel-host]')?.shadowRoot
+    ?.querySelector('[data-role="recoverText"]')?.textContent.includes("${scanned.total} 人")`), 8000, "刷新后可恢复原名单");
+  await clickAction(cdp, "recover-yes");
+  await waitFor(async () => (await phaseText(cdp)).includes("扫描完成"), 60000, "加载恢复后能扫完");
+  if (Number(await stat(cdp, "total")) !== scanned.total) throw new Error("恢复后人数错误");
 }
 
 async function runStrict(cdp) {
@@ -3065,6 +3155,7 @@ async function main() {
     if (scenario === "dark") navUrl.searchParams.set("dark", "1");
     if (scenario === "resume") { navUrl.searchParams.set("batch", "2"); navUrl.searchParams.set("initial", "4"); }
     if (scenario === "reply") navUrl.pathname = "/alice/followers";
+    if (scenario === "fail" || scenario === "retryrecover" || scenario === "retrypause") navUrl.searchParams.set("retryfast", "1");
     if (scenario === "replacedrow") navUrl.searchParams.set("replaceonunfollow", "1");
     if (scenario === "longlist") navUrl.searchParams.set("synthetic", "400");
     if (scenario === "virtual") { navUrl.searchParams.set("virtual", "1"); navUrl.searchParams.set("synthetic", "60"); }
@@ -3155,6 +3246,9 @@ async function main() {
     if (scenario === "anomaly") await runAnomaly(cdp);
     if (scenario === "jump") await runJump(cdp);
     if (scenario === "fail") await runFail(cdp);
+    if (scenario === "retryrecover") await runRetryRecover(cdp);
+    if (scenario === "retrypause") await runRetryPause(cdp);
+    if (scenario === "errorafter") await runErrorAfterScan(cdp);
     if (scenario === "strict") await runStrict(cdp);
     if (scenario === "dup") await runDup(cdp);
     if (scenario === "en") await runEnglish(cdp);
