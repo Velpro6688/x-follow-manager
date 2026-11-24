@@ -20,11 +20,11 @@
     <section class="status" id="stateCard" data-tone="">
       <div class="status-top">
         <span class="dot" id="dot"></span>
-        <strong id="stateTitle">正在检查当前页面…</strong>
+        <strong id="stateTitle" role="status">正在检查当前页面…</strong>
         <span class="chip" id="modeChip" hidden>关注清理</span>
       </div>
       <p class="desc" id="stateDesc">请稍候</p>
-      <p class="hint" id="scanHint" hidden>扫描期间请保持此标签页可见；窗口被完全覆盖时浏览器会暂停页面，扫描会停止。</p>
+      <p class="hint" id="scanHint" hidden>请保持列表页打开。切到后台后，浏览器可能放慢扫描速度。</p>
       <div class="bar" id="progress" hidden><i id="progressBar"></i></div>
     </section>
 
@@ -37,6 +37,7 @@
     </section>
 
     <section class="actions">
+      <p id="actionFeedback" class="hint" role="alert" hidden></p>
       <button id="rosterBtn" class="btn primary" hidden data-i18n="popup.roster">查看名单并挑选</button>
       <div class="split">
         <button id="focusBtn" class="btn" hidden data-i18n="popup.focus">定位面板</button>

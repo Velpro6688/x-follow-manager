@@ -229,3 +229,38 @@ test('间隔为空或非整数时拒绝保存', async () => {
   assert.ok(toast && /1–12/.test(toast.textContent));
   dom.window.close();
 });
+
+test('弹窗在停止未获确认、列表断开和重连时显示对应入口', async t => {
+  const { window: w } = new JSDOM(fs.readFileSync('x-follow-manager/popup.html', 'utf8'), { runScripts: 'outside-only' });
+  t.after(() => w.close());
+  let status = { isFollowing: true, scanning: true, total: 8 };
+  let poll;
+  w.setInterval = fn => { poll = fn; return 1; };
+  w.chrome = {
+    storage: { local: { get: (_, cb) => cb({}) } },
+    runtime: {},
+    tabs: {
+      query: async () => [{ id: 1, url: 'https://x.com/alice/following' }],
+      sendMessage: (_, msg, cb) => cb(msg.type === 'XFM_GET_STATUS' ? status : null)
+    }
+  };
+  w.eval(fs.readFileSync('x-follow-manager/popup.js', 'utf8'));
+  await new Promise(setImmediate);
+  const byId = id => w.document.getElementById(id);
+  byId('stopBtn').click();
+  await new Promise(setImmediate);
+  assert.match(byId('actionFeedback').textContent, /未收到停止确认/);
+  status = null;
+  await poll();
+  assert.equal(byId('stopBtn').hidden, true);
+  assert.equal(byId('stats').hidden, true);
+  assert.equal(byId('reloadBtn').hidden, false);
+  status = { isFollowing: false };
+  await poll();
+  assert.equal(byId('reloadBtn').hidden, true);
+  assert.match(byId('stateTitle').textContent, /离开/);
+  status = { isFollowing: true, phase: 'scanned', total: 8, oneWay: 0 };
+  await poll();
+  assert.equal(byId('stats').hidden, false);
+  assert.equal(byId('sTotal').textContent, '8');
+});

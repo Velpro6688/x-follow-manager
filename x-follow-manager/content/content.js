@@ -818,6 +818,7 @@
     var phaseTone = "";
     if (state.phase === "scanning") {
       phaseLabel = state.scan.userPaused ? T("state.pausedN", { n: stats.total }) : T("state.scanningN", { n: stats.total });
+      if (state.scan.recovering && !state.scan.userPaused) phaseLabel = "正在恢复列表";
       phaseTone = "run";
     }
     else if (state.phase === "scanned") { phaseLabel = T("state.scanned"); phaseTone = "ok"; }
@@ -1702,7 +1703,6 @@
     scanObj.pageIssue = initialIssues.blockedReason || "X 列表加载失败";
     state.notice = "X 列表加载中断，正在复核页面状态…（已扫描 " + state.rows.size + " 人）";
     renderThrottled();
-    U.toast("X 列表暂时加载失败，将自动等待并重试");
     await saveScanProgress(true);
 
     await sleepInterruptible(timing.confirmMs);
@@ -1723,7 +1723,7 @@
       scanObj.recoveryAttempts = attempt + 1;
       state.notice = "X 列表暂时加载失败，" + Math.ceil(waitMs / 1000) +
         " 秒后自动重试（第 " + scanObj.recoveryAttempts + "/" + timing.delaysMs.length +
-        " 次）· 已保留 " + state.rows.size + " 人";
+        " 次）。请保持列表页打开，插件会自动继续。已扫描 " + state.rows.size + " 人";
       renderThrottled();
       await sleepInterruptible(waitMs);
       if (stopPageRecoveryIfInterrupted(scanObj)) return true;
@@ -1762,8 +1762,8 @@
       }
     }
 
-    var reason = "X 列表连续 " + timing.delaysMs.length +
-      " 次自动重试仍出现加载错误。已保存扫描结果，请等待几分钟或切换网络后，再点“继续扫描”。";
+    var reason = "连续 " + timing.delaysMs.length +
+      " 次检查后，X 列表仍未恢复。已扫描 " + state.rows.size + " 人，批量操作已暂停。请等几分钟，再点 X 页面上的“重试”。看到账号列表后，点管理面板里的“继续扫描”。";
     scanObj.recovering = false;
     scanObj.pageIssue = reason;
     if (state.scheduledRun && state.scheduledRun.active) state.scheduledRun.pauseRequired = true;
@@ -3353,6 +3353,8 @@
       owner: state.owner,
       phase: state.phase,
       scanning: state.scan.active,
+      recovering: state.scan.recovering,
+      paused: state.scan.userPaused,
       running: state.run.active,
       total: stats.total,
       oneWay: stats.oneWay,

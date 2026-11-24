@@ -56,7 +56,7 @@
   function setState(tone, title, desc) {
     if (el.card) el.card.setAttribute("data-tone", tone || "");
     if (el.dot) el.dot.setAttribute("data-tone", tone || "");
-    el.title.textContent = title;
+    if (el.title.textContent !== title) el.title.textContent = title;
     el.desc.textContent = desc;
   }
 
@@ -170,6 +170,7 @@
     }
 
     el.clearExcludedBtn.addEventListener("click", async function () {
+      if (!window.confirm("清空排除名单后，这些账号将可以再次被选中。确定清空吗？")) return;
       if (await saveSettings({ excluded: [] })) renderExcluded(0);
     });
 
@@ -203,27 +204,40 @@
   var lastStatus = null;
   var actionsWired = false;
   var pollTimer = null;
+  var refreshPending = false;
 
   function wireActions() {
     if (actionsWired) return;
     actionsWired = true;
 
-    el.reloadBtn.addEventListener("click", function () {
-      if (currentTab && currentTab.id != null) chrome.tabs.reload(currentTab.id);
-      window.close();
-    });
-    el.rosterBtn.addEventListener("click", function () {
-      void sendToTab({ type: "XFM_OPEN_ROSTER" });
-      window.close();
-    });
-    el.focusBtn.addEventListener("click", function () {
-      void sendToTab({ type: "XFM_FOCUS_PANEL" });
-      window.close();
-    });
-    el.stopBtn.addEventListener("click", async function () {
-      await sendToTab({ type: "XFM_STOP" });
-      window.close();
-    });
+    var feedback = document.getElementById("actionFeedback");
+    function bind(button, action, failure) {
+      button.addEventListener("click", async function () {
+        button.disabled = true;
+        feedback.hidden = true;
+        try {
+          await action();
+          window.close();
+        } catch (err) {
+          feedback.textContent = failure;
+          feedback.hidden = false;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+    bind(el.reloadBtn, function () {
+      return chrome.tabs.reload(currentTab.id);
+    }, "刷新请求失败。请回到 X 标签页，按 Ctrl+R 或点击浏览器的刷新按钮。");
+    function pageAction(type) {
+      return async function () {
+        var response = await sendToTab({ type: type });
+        if (!response || !response.ok) throw new Error("页面未确认操作");
+      };
+    }
+    bind(el.rosterBtn, pageAction("XFM_OPEN_ROSTER"), "名单未打开。请回到列表页，从管理面板打开名单。");
+    bind(el.focusBtn, pageAction("XFM_FOCUS_PANEL"), "未找到面板。请打开自己主页的关注或粉丝列表，再试一次。");
+    bind(el.stopBtn, pageAction("XFM_STOP"), "未收到停止确认。请立即回到列表页查看任务状态，若仍在运行，点击面板里的停止按钮。");
   }
 
   /** 只更新界面，不重复绑定事件；扫描/执行期间由轮询反复调用 */
@@ -255,9 +269,12 @@
     el.stopBtn.hidden = !running;
 
     var actionName = isReply ? "回关" : "取关";
-    if (el.scanHint) el.scanHint.hidden = !status.scanning;
-    if (status.scanning) {
-      setState("run", "扫描中", status.notice || "正在滚动加载列表，可随时停止");
+    if (el.scanHint) el.scanHint.hidden = !status.scanning || status.paused || status.recovering;
+    if (status.scanning && status.paused) {
+      setState("", "扫描已暂停", "点下方“定位面板”，回到列表页继续扫描。");
+      showProgress("");
+    } else if (status.scanning) {
+      setState("run", status.recovering ? "正在恢复列表" : "扫描中", status.notice || "正在滚动加载列表，可随时停止");
       showProgress("indeterminate");
     } else if (status.running) {
       setState("run", "正在批量" + actionName, status.notice || "可点击下方按钮停止");
@@ -268,6 +285,9 @@
       showProgress("");
     } else if (status.phase === "partial") {
       setState("bad", "结果不完整", status.notice || "已保留已扫描部分，可回到页面继续扫描");
+      showProgress("");
+    } else if (status.phase === "done") {
+      setState("ok", "本批已结束", status.notice || "返回页面管理面板查看执行结果。");
       showProgress("");
     } else if (status.phase === "scanned") {
       setState("ok", "已完成扫描",
@@ -281,18 +301,30 @@
   }
 
   async function refreshStatus() {
-    var status = await sendToTab({ type: "XFM_GET_STATUS" });
-    if (!status) {
-      // 页面未接入：只提示一次，不反复覆盖其他状态
-      if (!lastStatus) {
-        setState("bad", "页面尚未接入", "扩展刚安装或更新后，需要刷新一次 X 页面才能生效。");
-        el.reloadBtn.hidden = false;
-        wireActions();
-      }
-      return;
+    if (refreshPending) return;
+    refreshPending = true;
+    var status;
+    try {
+      status = await sendToTab({ type: "XFM_GET_STATUS" });
+    } finally {
+      refreshPending = false;
     }
     wireActions();
-    renderStatus(status);
+    if (status && status.isFollowing !== false) {
+      renderStatus(status);
+      return;
+    }
+    lastStatus = null;
+    [el.stats, el.chip, el.scanHint, el.rosterBtn, el.stopBtn, el.focusBtn].forEach(function (item) {
+      item.hidden = true;
+    });
+    showProgress("");
+    el.reloadBtn.hidden = !!status;
+    if (status) {
+      setState("", "已离开列表页", "请回到自己的关注或粉丝列表，面板会重新接入。");
+    } else {
+      setState("bad", "页面尚未连接", "若 X 页面正在加载，请稍候。若一直没有连接，请刷新列表页，再打开插件。");
+    }
   }
 
   async function initPage() {
