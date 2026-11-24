@@ -2,11 +2,11 @@
   <img src="docs/screenshots/cover.png" width="1200" alt="X 关注管理台 · 看清关注关系，核对名单后分批取关或回关">
 </h1>
 
-<p align="center"><strong>v1.0.1</strong> · 桌面 Chrome / Microsoft Edge · Manifest V3 · 本地运行</p>
+<p align="center"><strong>v1.1.0</strong> · 桌面 Chrome / Microsoft Edge · Manifest V3 · 本地运行</p>
 
 
 <p align="center">
-  <a href="../../releases/tag/v1.0.1"><strong>下载 v1.0.1</strong></a>
+  <a href="../../releases/tag/v1.1.0"><strong>下载 v1.1.0</strong></a>
   · <a href="#安装">安装说明</a>
   · <a href="../../issues/new/choose">反馈与建议</a>
 </p>
@@ -51,7 +51,7 @@
 
 ### 1. 下载并解压
 
-点击 [下载 v1.0.1 源码 ZIP](../../archive/refs/tags/v1.0.1.zip)，或在 [发布页](../../releases/tag/v1.0.1) 的 **Assets** 下选择 **Source code (zip)**。下载后，在 Windows 文件管理器里右键 ZIP，选择「全部解压缩」。将解压后的目录放到方便长期保留的位置。
+点击 [下载 v1.1.0 源码 ZIP](../../archive/refs/tags/v1.1.0.zip)，或在 [发布页](../../releases/tag/v1.1.0) 的 **Assets** 下选择 **Source code (zip)**。下载后，在 Windows 文件管理器里右键 ZIP，选择「全部解压缩」。将解压后的目录放到方便长期保留的位置。
 
 ### 2. 打开开发者模式并添加插件
 
@@ -93,7 +93,7 @@
 3. 核对本批人数与名单，勾选确认后执行。
 4. 查看处理结果。遇到「结果未知」时先人工复查，避免重复执行。
 
-**定时任务**。`v1.0.1` 已启用定时清理与定时回关。请先在对应列表完成一次扫描，再保持浏览器窗口和绑定的 X 标签页打开。定时清理停留在自己账号的「正在关注」列表，定时回关停留在「关注者」列表。关闭浏览器、设备休眠或标签页被冻结，都可能导致任务错过执行时间。
+**定时任务**。`v1.1.0` 已启用定时清理与定时回关。请先在对应列表完成一次扫描，再保持浏览器窗口和绑定的 X 标签页打开。定时清理停留在自己账号的「正在关注」列表，定时回关停留在「关注者」列表。关闭浏览器、设备休眠或标签页被冻结，都可能导致任务错过执行时间。
 
 ## 反馈与建议
 

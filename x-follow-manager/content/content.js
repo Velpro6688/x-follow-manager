@@ -31,7 +31,7 @@
   /* 常量与状态                                                          */
   /* ------------------------------------------------------------------ */
 
-  var VERSION = "1.0.1";
+  var VERSION = "1.1.0";
   var STORAGE_KEY = "xfm.settings.v1";
   var PROGRESS_KEY = "xfm.scan.progress.v1";
   var PROGRESS_SAVE_INTERVAL_MS = 5000; // 进度保存节流：后台/前台都不每扫一人写一次
